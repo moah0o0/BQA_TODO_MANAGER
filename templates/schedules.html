@@ -212,10 +212,40 @@
     color: white;
 }
 
-/* 강조되지 않은 일정 */
+/* 강조된 일정 - 부각 */
+.schedule-card.highlighted,
+.yearly-card.highlighted {
+    border-color: var(--primary);
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.15);
+}
+
+/* 강조되지 않은 일정 - 작게 표시 */
 .schedule-card.dimmed,
 .yearly-card.dimmed {
-    opacity: 0.4;
+    opacity: 0.5;
+    padding: 10px 12px;
+}
+
+.schedule-card.dimmed .schedule-title {
+    font-size: 13px;
+}
+
+.schedule-card.dimmed .schedule-meta {
+    font-size: 11px;
+}
+
+.schedule-card.dimmed .schedule-preview,
+.schedule-card.dimmed .schedule-counts,
+.schedule-card.dimmed .prep-label {
+    display: none;
+}
+
+.yearly-card.dimmed {
+    padding: 8px 12px;
+}
+
+.yearly-card.dimmed .yearly-title {
+    font-size: 12px;
 }
 
 /* 사전준비 필요 일정 */
@@ -291,19 +321,21 @@ function applyHighlight() {
         chip.classList.toggle('active', categories.includes(cat));
     });
 
-    // 일정 카드 dimmed 상태 적용
+    // 일정 카드 dimmed/highlighted 상태 적용
     const cards = document.querySelectorAll('.schedule-card, .yearly-card');
     cards.forEach(card => {
         const cardCategory = card.dataset.category;
         if (categories.length === 0) {
             // 선택된 카테고리가 없으면 모두 정상 표시
-            card.classList.remove('dimmed');
+            card.classList.remove('dimmed', 'highlighted');
         } else if (categories.includes(cardCategory)) {
             // 선택된 카테고리에 해당하면 강조
             card.classList.remove('dimmed');
+            card.classList.add('highlighted');
         } else {
             // 선택되지 않은 카테고리는 흐리게
             card.classList.add('dimmed');
+            card.classList.remove('highlighted');
         }
     });
 }
