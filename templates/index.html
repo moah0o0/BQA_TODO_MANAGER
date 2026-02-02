@@ -46,7 +46,7 @@
     {% if all_tasks %}
     <div class="task-list">
         {% for task in all_tasks %}
-        <div class="task-row {% if task.is_completed %}done{% endif %}{% if task in urgent_tasks %} urgent{% endif %}{% if task.is_mine %} mine{% endif %}" data-id="{{ task.id }}">
+        <div class="task-row {% if task.is_completed %}done{% endif %}{% if task in urgent_tasks %} urgent{% endif %}{% if task.is_mine and filter_activist == '' %} mine{% endif %}" data-id="{{ task.id }}">
             <button type="button" class="checkbox" onclick="toggleTask({{ task.id }}, this)">{% if task.is_completed
                 %}✓{% endif %}</button>
             <div class="task-info"
@@ -56,7 +56,7 @@
                     {% if task in urgent_tasks and not task.is_completed %}<span class="tag urgent">🔥 급함</span>{% endif %}
                     {% if task.deadline %}<span class="tag deadline">{{ task.deadline | date_kr }}까지</span>{% endif %}
                     {% if task.dday_text %}<span class="dday {{ task.dday_class }}">{{ task.dday_text }}</span>{% endif %}
-                    {% if task.activist_name %}<span class="assignee {% if task.is_mine %}mine{% endif %}">{{ task.activist_name }}</span>{% else %}<span class="assignee unassigned">미정</span>{% endif %}
+                    {% if task.activist_name %}<span class="assignee {% if task.is_mine and filter_activist == '' %}mine{% endif %}">{{ task.activist_name }}</span>{% else %}<span class="assignee unassigned">미정</span>{% endif %}
                 </div>
                 {% if task.schedule_title %}
                 <a href="{{ url_for('schedule_detail', schedule_id=task.schedule_id) }}" class="task-schedule"
