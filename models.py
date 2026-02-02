@@ -4,6 +4,11 @@ import os
 
 DATABASE = os.environ.get('DATABASE_PATH', 'database.db')
 
+# DB 경로의 디렉토리가 없으면 생성 (Docker/Coolify 배포용)
+db_dir = os.path.dirname(DATABASE)
+if db_dir and not os.path.exists(db_dir):
+    os.makedirs(db_dir, exist_ok=True)
+
 def get_db():
     """데이터베이스 연결을 반환합니다."""
     conn = sqlite3.connect(DATABASE)
