@@ -3,79 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>승인 대기 - 부산퀴어행동 TODO</title>
+    <title>승인 대기 - 부산퀴어행동</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <style>
-        .pending-container {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: var(--bg-secondary);
-        }
-        .pending-box {
-            background: var(--bg-main);
-            padding: 3rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            max-width: 400px;
-            width: 100%;
-        }
-        .pending-icon {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-        }
-        .pending-title {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 0.5rem;
-        }
-        .pending-message {
-            color: var(--text-secondary);
-            margin-bottom: 1.5rem;
-            line-height: 1.6;
-        }
-        .user-info {
-            background: var(--bg-secondary);
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1.5rem;
-        }
-        .user-email {
-            color: var(--text-primary);
-            font-weight: 500;
-        }
-        .logout-btn {
-            display: inline-block;
-            padding: 10px 20px;
-            background: var(--bg-hover);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text-primary);
-            text-decoration: none;
-            transition: all 0.2s;
-        }
-        .logout-btn:hover {
-            background: var(--border);
-        }
-    </style>
 </head>
-<body>
-    <div class="pending-container">
-        <div class="pending-box">
-            <div class="pending-icon">⏳</div>
-            <h1 class="pending-title">승인 대기 중</h1>
-            <p class="pending-message">
-                가입이 완료되었습니다.<br>
-                관리자가 승인하면 서비스를 이용할 수 있습니다.
-            </p>
-            <div class="user-info">
-                <span class="user-email">{{ current_user.email }}</span>
-            </div>
-            <a href="{{ url_for('logout') }}" class="logout-btn">로그아웃</a>
+<body style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-2);">
+    <div style="background: var(--bg); padding: 40px; border-radius: 16px; text-align: center; max-width: 360px; width: 100%;">
+        <div style="font-size: 48px; margin-bottom: 16px;">⏳</div>
+        <h1 style="font-size: 20px; margin-bottom: 8px;">승인 대기 중</h1>
+        <p style="color: var(--text-2); margin-bottom: 24px; line-height: 1.6;">
+            가입이 완료되었습니다.<br>
+            관리자가 승인하면 이용할 수 있습니다.
+        </p>
+        <div style="background: var(--bg-2); padding: 12px; border-radius: 8px; margin-bottom: 24px;">
+            {{ current_user.email }}
         </div>
+        <a href="{{ url_for('logout') }}" class="btn secondary" style="width: 100%;">로그아웃</a>
     </div>
 </body>
 </html>

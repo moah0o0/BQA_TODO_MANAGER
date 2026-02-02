@@ -3,62 +3,126 @@
 {% block title %}사용자 관리 - 부산퀴어행동 TODO{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1 class="page-title">사용자 관리</h1>
+<div class="detail-header">
+    <a href="{{ url_for('index') }}" class="detail-back">← 홈</a>
+    <h1 class="detail-title">사용자 관리</h1>
 </div>
 
-<div class="card">
-    <div class="card-body">
-        {% if users %}
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>프로필</th>
-                    <th>이름</th>
-                    <th>이메일</th>
-                    <th>가입일</th>
-                    <th>상태</th>
-                    <th>관리</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for user in users %}
-                <tr>
-                    <td>
-                        {% if user['picture'] %}
-                        <img src="{{ user['picture'] }}" alt="" style="width: 32px; height: 32px; border-radius: 50%;">
-                        {% else %}
-                        <span style="display: inline-block; width: 32px; height: 32px; background: var(--bg-secondary); border-radius: 50%; text-align: center; line-height: 32px;">👤</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ user['name'] or '-' }}</td>
-                    <td>{{ user['email'] }}</td>
-                    <td>{{ user['created_at'] or '-' }}</td>
-                    <td>
-                        {% if user['is_approved'] %}
-                        <span class="badge badge-green">승인됨</span>
-                        {% else %}
-                        <span class="badge badge-yellow">대기중</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if user['is_approved'] %}
-                        <form action="{{ url_for('admin_revoke_user', user_id=user['id']) }}" method="POST" style="display: inline;">
-                            <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('승인을 취소하시겠습니까?')">승인 취소</button>
-                        </form>
-                        {% else %}
-                        <form action="{{ url_for('admin_approve_user', user_id=user['id']) }}" method="POST" style="display: inline;">
-                            <button type="submit" class="btn btn-primary btn-sm">승인</button>
-                        </form>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="empty-state">등록된 사용자가 없습니다.</p>
-        {% endif %}
+{% if users %}
+<div class="user-list">
+    {% for user in users %}
+    <div class="user-card {% if not user['is_approved'] %}pending{% endif %}">
+        <div class="user-card-profile">
+            {% if user['picture'] %}
+            <img src="{{ user['picture'] }}" alt="" class="user-avatar">
+            {% else %}
+            <span class="user-avatar placeholder">{{ user['name'][0] if user['name'] else '?' }}</span>
+            {% endif %}
+        </div>
+        <div class="user-card-info">
+            <div class="user-card-name">{{ user['name'] or '(이름 없음)' }}</div>
+            <div class="user-card-email">{{ user['email'] }}</div>
+            <div class="user-card-meta">
+                <span>{{ user['created_at'] or '가입일 미상' }}</span>
+                {% if user['is_approved'] %}
+                <span class="badge approved">승인됨</span>
+                {% else %}
+                <span class="badge pending">대기중</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="user-card-action">
+            {% if user['is_approved'] %}
+            <form action="{{ url_for('admin_revoke_user', user_id=user['id']) }}" method="POST">
+                <button type="submit" class="btn secondary small" onclick="return confirm('승인을 취소하시겠습니까?')">취소</button>
+            </form>
+            {% else %}
+            <form action="{{ url_for('admin_approve_user', user_id=user['id']) }}" method="POST">
+                <button type="submit" class="btn primary small">승인</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
+    {% endfor %}
 </div>
+{% else %}
+<div class="empty">
+    <p>등록된 사용자가 없습니다.</p>
+</div>
+{% endif %}
+
+<style>
+.user-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.user-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.user-card.pending {
+    background: #fffbeb;
+    border-color: #fcd34d;
+}
+.user-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.user-avatar.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-2);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-2);
+}
+.user-card-info {
+    flex: 1;
+    min-width: 0;
+}
+.user-card-name {
+    font-weight: 500;
+    font-size: 15px;
+}
+.user-card-email {
+    font-size: 13px;
+    color: var(--text-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.user-card-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-3);
+    flex-wrap: wrap;
+}
+.badge.approved {
+    background: #dcfce7;
+    color: #166534;
+}
+.badge.pending {
+    background: #fef3c7;
+    color: #92400e;
+}
+.user-card-action {
+    flex-shrink: 0;
+}
+.btn.small {
+    padding: 8px 14px;
+    font-size: 13px;
+}
+</style>
 {% endblock %}

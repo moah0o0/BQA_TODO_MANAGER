@@ -36,11 +36,11 @@ def init_db():
         )
     ''')
 
-    # 실무/TODO 테이블
+    # 실무/TODO 테이블 (schedule_id는 NULL 가능 - TODO는 일정 없이도 존재 가능)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            schedule_id TEXT NOT NULL,
+            schedule_id TEXT,
             priority INTEGER DEFAULT 1,
             activist_id TEXT,
             is_idea INTEGER DEFAULT 0,
@@ -53,15 +53,78 @@ def init_db():
         )
     ''')
 
+    # 기존 테이블에서 NOT NULL 제약 제거 (마이그레이션)
+    # SQLite는 ALTER COLUMN을 지원하지 않으므로 테이블 재생성
+    try:
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'")
+        schema = cursor.fetchone()
+        if schema and 'schedule_id TEXT NOT NULL' in schema[0]:
+            # 기존 테이블 백업 및 재생성
+            cursor.execute('ALTER TABLE tasks RENAME TO tasks_old')
+            cursor.execute('''
+                CREATE TABLE tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    schedule_id TEXT,
+                    priority INTEGER DEFAULT 1,
+                    activist_id TEXT,
+                    is_idea INTEGER DEFAULT 0,
+                    is_draft INTEGER DEFAULT 0,
+                    deadline TEXT,
+                    content TEXT NOT NULL,
+                    is_completed INTEGER DEFAULT 0,
+                    created_at TEXT,
+                    FOREIGN KEY (schedule_id) REFERENCES schedules(id),
+                    FOREIGN KEY (activist_id) REFERENCES activists(id)
+                )
+            ''')
+            cursor.execute('''
+                INSERT INTO tasks (id, schedule_id, priority, activist_id, is_idea, is_draft, deadline, content, is_completed, created_at)
+                SELECT id, schedule_id, priority, activist_id, is_idea, is_draft, deadline, content, is_completed, created_at
+                FROM tasks_old
+            ''')
+            cursor.execute('DROP TABLE tasks_old')
+            conn.commit()
+    except Exception:
+        pass  # 마이그레이션 실패 시 무시
+
     # is_draft 컬럼이 없으면 추가 (기존 DB 호환)
     try:
         cursor.execute('ALTER TABLE tasks ADD COLUMN is_draft INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass  # 컬럼이 이미 존재함
 
+    # needs_advance_prep 컬럼 추가 (기존 DB 호환)
+    # 1이면 2개월 전부터, 0이면 1개월 전부터 사전준비 알림
+    try:
+        cursor.execute('ALTER TABLE schedules ADD COLUMN needs_advance_prep INTEGER DEFAULT 0')
+    except sqlite3.OperationalError:
+        pass  # 컬럼이 이미 존재함
+
+    # 시작/종료 시간 컬럼 추가 (기존 DB 호환)
+    try:
+        cursor.execute('ALTER TABLE schedules ADD COLUMN start_time TEXT')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute('ALTER TABLE schedules ADD COLUMN end_time TEXT')
+    except sqlite3.OperationalError:
+        pass
+
+    # 장소 컬럼 추가 (기존 DB 호환)
+    try:
+        cursor.execute('ALTER TABLE schedules ADD COLUMN location TEXT')
+    except sqlite3.OperationalError:
+        pass
+
     # created_at 컬럼 추가 (기존 DB 호환)
     try:
         cursor.execute('ALTER TABLE tasks ADD COLUMN created_at TEXT')
+    except sqlite3.OperationalError:
+        pass  # 컬럼이 이미 존재함
+
+    # tasks 테이블에 details 컬럼 추가 (아이디어 상세 내용용)
+    try:
+        cursor.execute('ALTER TABLE tasks ADD COLUMN details TEXT')
     except sqlite3.OperationalError:
         pass  # 컬럼이 이미 존재함
 
@@ -90,19 +153,26 @@ def init_db():
         )
     ''')
 
+    # users 테이블에 activist_id 컬럼 추가 (연결된 활동가)
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN activist_id TEXT')
+    except sqlite3.OperationalError:
+        pass  # 컬럼이 이미 존재함
+
     conn.commit()
     conn.close()
 
 
 class User:
     """Flask-Login용 User 클래스"""
-    def __init__(self, id, google_id, email, name, picture, is_approved):
+    def __init__(self, id, google_id, email, name, picture, is_approved, activist_id=None):
         self.id = id
         self.google_id = google_id
         self.email = email
         self.name = name
         self.picture = picture
         self.is_approved = is_approved
+        self.activist_id = activist_id
 
     def is_authenticated(self):
         return True
@@ -124,8 +194,9 @@ class User:
         row = cursor.fetchone()
         conn.close()
         if row:
+            activist_id = row['activist_id'] if 'activist_id' in row.keys() else None
             return User(row['id'], row['google_id'], row['email'],
-                       row['name'], row['picture'], row['is_approved'])
+                       row['name'], row['picture'], row['is_approved'], activist_id)
         return None
 
     @staticmethod
@@ -136,8 +207,9 @@ class User:
         row = cursor.fetchone()
         conn.close()
         if row:
+            activist_id = row['activist_id'] if 'activist_id' in row.keys() else None
             return User(row['id'], row['google_id'], row['email'],
-                       row['name'], row['picture'], row['is_approved'])
+                       row['name'], row['picture'], row['is_approved'], activist_id)
         return None
 
 def seed_initial_data():

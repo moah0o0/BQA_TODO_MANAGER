@@ -53,6 +53,21 @@ def approval_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def superadmin_required(f):
+    """최고 관리자(첫 번째 계정)만 접근 가능하도록 하는 데코레이터"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login'))
+        if not current_user.is_active():
+            flash('관리자의 승인이 필요합니다.')
+            return redirect(url_for('pending_approval'))
+        if current_user.id != 1:
+            flash('최고 관리자만 접근할 수 있습니다.')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
 # 앱 시작 시 DB 초기화
 with app.app_context():
     init_db()
@@ -83,9 +98,16 @@ def parse_date(date_str):
         year = int(match.group(1))
         month = int(match.group(2))
         timing = match.group(3)
-        # 초: 5일, 중순: 15일, 말: 25일, 미정: 15일
-        day_map = {'초': 5, '중순': 15, '말': 25, '미정': 15}
-        day = day_map.get(timing, 15)
+        if timing == '초':
+            day = 1
+        elif timing == '중순':
+            day = 15
+        elif timing == '말':
+            # 해당 월의 마지막 날 계산
+            import calendar
+            day = calendar.monthrange(year, month)[1]
+        else:  # 미정
+            day = 15
         return datetime(year, month, day)
 
     # YYYY-MM-시기~MM-시기 (범위) -> 첫 번째 월 기준
@@ -94,8 +116,15 @@ def parse_date(date_str):
         year = int(match.group(1))
         month = int(match.group(2))
         timing = match.group(3) or '중순'
-        day_map = {'초': 5, '중순': 15, '말': 25}
-        day = day_map.get(timing, 15)
+        if timing == '초':
+            day = 1
+        elif timing == '중순':
+            day = 15
+        elif timing == '말':
+            import calendar
+            day = calendar.monthrange(year, month)[1]
+        else:
+            day = 15
         return datetime(year, month, day)
 
     # "연중" -> 연말(12월)로 정렬
@@ -180,10 +209,55 @@ def format_date_kr(date_str):
     return date_str
 
 
+# 요일을 한글로 변환
+def format_weekday_kr(date_str):
+    """날짜 문자열에서 요일을 한글로 반환합니다."""
+    weekdays = ['월', '화', '수', '목', '금', '토', '일']
+    if not date_str:
+        return ''
+    dt = parse_date(date_str)
+    if dt:
+        return weekdays[dt.weekday()]
+    return ''
+
+
+# HTML 태그 제거 및 텍스트 자르기
+def strip_html_truncate(html_str, max_length=100):
+    """HTML 태그를 제거하고 지정된 길이로 자릅니다."""
+    import re
+    import html
+    if not html_str:
+        return ''
+    # HTML 태그 제거
+    text = re.sub(r'<[^>]+>', '', html_str)
+    # HTML 엔티티 디코딩 (&nbsp; &lt; 등)
+    text = html.unescape(text)
+    # 연속 공백 정리
+    text = re.sub(r'\s+', ' ', text).strip()
+    # 길이 제한
+    if len(text) > max_length:
+        return text[:max_length] + '...'
+    return text
+
+
 # Jinja2 필터 등록
 app.jinja_env.filters['dday'] = lambda d: calc_dday(d)[0]
 app.jinja_env.filters['dday_class'] = lambda d: calc_dday(d)[1]
 app.jinja_env.filters['date_kr'] = format_date_kr
+app.jinja_env.filters['weekday_kr'] = format_weekday_kr
+app.jinja_env.filters['strip_html'] = strip_html_truncate
+
+
+# 모든 템플릿에 활동가 목록 제공 (사용자 활동가 연결 기능용)
+@app.context_processor
+def inject_all_activists():
+    """모든 템플릿에서 all_activists 사용 가능"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM activists ORDER BY name')
+    activists = cursor.fetchall()
+    conn.close()
+    return dict(all_activists=activists)
 
 
 # ========== 인증 ==========
@@ -316,71 +390,134 @@ def admin_revoke_user(user_id):
     return redirect(url_for('admin_users'))
 
 
+@app.route('/user/link-activist', methods=['POST'])
+@approval_required
+def link_activist():
+    """사용자 계정에 활동가 연결"""
+    activist_id = request.form.get('activist_id', '') or None
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET activist_id = ? WHERE id = ?', (activist_id, current_user.id))
+    conn.commit()
+    conn.close()
+
+    # 현재 사용자 객체 업데이트
+    current_user.activist_id = activist_id
+
+    if activist_id:
+        flash('활동가가 연결되었습니다.')
+    else:
+        flash('활동가 연결이 해제되었습니다.')
+
+    referer = request.referrer or url_for('index')
+    return redirect(referer)
+
+
 @app.route('/')
 @approval_required
 def index():
-    """대시보드"""
+    """TODO 메인 뷰"""
     conn = get_db()
     cursor = conn.cursor()
     today = get_kst_now().replace(tzinfo=None)
 
-    # 전체 미완료 실무 (is_idea=0)
-    cursor.execute('''
-        SELECT t.*, s.title as schedule_title, a.name as activist_name
+    show_completed = request.args.get('show_completed', '0') == '1'
+
+    # 필터: URL에 activist 파라미터가 없으면 연결된 활동가로 기본값 설정
+    if 'activist' in request.args:
+        filter_activist = request.args.get('activist', '')
+    else:
+        # 연결된 활동가가 있으면 그걸로 기본 필터
+        filter_activist = current_user.activist_id if hasattr(current_user, 'activist_id') and current_user.activist_id else ''
+
+    # 기본 쿼리
+    query = '''
+        SELECT t.*, s.title as schedule_title, s.date as schedule_date, s.category as schedule_category, a.name as activist_name
         FROM tasks t
         LEFT JOIN schedules s ON t.schedule_id = s.id
         LEFT JOIN activists a ON t.activist_id = a.id
-        WHERE t.is_idea = 0 AND t.is_completed = 0
-        ORDER BY t.deadline ASC
-    ''')
-    all_tasks = cursor.fetchall()
+        WHERE t.is_idea = 0
+    '''
+    params = []
+
+    if not show_completed:
+        query += ' AND t.is_completed = 0'
+
+    if filter_activist:
+        query += ' AND t.activist_id = ?'
+        params.append(filter_activist)
+
+    query += ' ORDER BY t.is_completed ASC, t.deadline ASC NULLS LAST'
+
+    cursor.execute(query, params)
+    all_tasks_raw = cursor.fetchall()
 
     # D-day 계산 및 분류
+    all_tasks = []
     urgent_tasks = []  # D-3 이내
-    week_tasks = []    # 이번 주
 
-    for task in all_tasks:
+    # 현재 사용자의 연결된 활동가 ID
+    linked_activist_id = current_user.activist_id if hasattr(current_user, 'activist_id') else None
+
+    for task in all_tasks_raw:
         dday_text, dday_class = calc_dday(task['deadline'])
         task_dict = dict(task)
         task_dict['dday_text'] = dday_text
         task_dict['dday_class'] = dday_class
+        # 내 TODO인지 표시
+        task_dict['is_mine'] = (task['activist_id'] == linked_activist_id) if linked_activist_id else False
+        all_tasks.append(task_dict)
 
-        deadline = parse_date(task['deadline'])
-        if deadline:
-            diff = (deadline - today).days
-            if diff <= 3:
-                urgent_tasks.append(task_dict)
-            if diff <= 7:
-                week_tasks.append(task_dict)
+        if not task['is_completed']:
+            deadline = parse_date(task['deadline'])
+            if deadline:
+                diff = (deadline - today).days
+                if diff <= 3:
+                    urgent_tasks.append(task_dict)
 
-    # 통계
-    stats = {
-        'urgent': len(urgent_tasks),
-        'week': len(week_tasks),
-        'total': len(all_tasks)
-    }
+    # 내 TODO가 먼저 나오도록 정렬 (is_mine 우선, 그 다음 마감일순)
+    if linked_activist_id:
+        all_tasks.sort(key=lambda x: (x['is_completed'], not x['is_mine'], x['deadline'] or '9999-99-99'))
 
-    # 다가오는 일정 (미완료, 2달 이내)
-    two_months_later = (today + timedelta(days=60)).strftime('%Y-%m-%d')
+    # 사전준비 알림 - 일정 날짜 기준으로 (미확정 일정만)
+    # needs_advance_prep=1: 70일 전부터, needs_advance_prep=0: 35일 전부터
+    prep_reminders = []
     cursor.execute('''
-        SELECT s.*,
-               COUNT(t.id) as task_count,
-               SUM(CASE WHEN t.is_completed = 1 THEN 1 ELSE 0 END) as completed_count
+        SELECT s.*, COUNT(CASE WHEN t.is_idea = 1 THEN t.id END) as idea_count
         FROM schedules s
-        LEFT JOIN tasks t ON s.id = t.schedule_id AND t.is_idea = 0
-        WHERE s.is_completed = 0 AND (s.date <= ? OR s.date IS NULL OR s.date = '')
+        LEFT JOIN tasks t ON s.id = t.schedule_id
+        WHERE s.is_completed = 0 AND s.is_confirmed = 0 AND s.date IS NOT NULL AND s.date != '' AND s.date != '연중'
         GROUP BY s.id
-        ORDER BY s.date ASC
-    ''', (two_months_later,))
-    upcoming_schedules = cursor.fetchall()
+    ''')
+    for schedule in cursor.fetchall():
+        schedule_date = parse_date(schedule['date'])
+        if schedule_date:
+            needs_advance = schedule['needs_advance_prep'] if 'needs_advance_prep' in schedule.keys() else 0
+            prep_days = 70 if needs_advance else 35
+            diff = (schedule_date - today).days
+            if 0 < diff <= prep_days:
+                reminder = dict(schedule)
+                reminder['is_advance_prep'] = bool(needs_advance)
+                prep_reminders.append(reminder)
+
+    # 활동가 목록
+    cursor.execute('SELECT * FROM activists ORDER BY name')
+    activists = cursor.fetchall()
+
+    # 일정 목록 (참조용) - 날짜, 카테고리 포함
+    cursor.execute('SELECT id, title, date, category, is_confirmed FROM schedules WHERE is_completed = 0 ORDER BY date ASC')
+    schedules = cursor.fetchall()
 
     conn.close()
 
     return render_template('index.html',
+                           all_tasks=all_tasks,
                            urgent_tasks=urgent_tasks,
-                           stats=stats,
-                           upcoming_schedules=upcoming_schedules,
-                           today=today)
+                           prep_reminders=prep_reminders,
+                           activists=activists,
+                           schedules=schedules,
+                           show_completed=show_completed,
+                           filter_activist=filter_activist)
 
 
 # ========== 일정 관리 ==========
@@ -485,9 +622,11 @@ def meeting():
 
     # 연중 일정 조회
     cursor.execute('''
-        SELECT s.*, COUNT(t.id) as task_count
+        SELECT s.*,
+               COUNT(CASE WHEN t.is_idea = 0 THEN t.id END) as task_count,
+               COUNT(CASE WHEN t.is_idea = 1 THEN t.id END) as idea_count
         FROM schedules s
-        LEFT JOIN tasks t ON s.id = t.schedule_id AND t.is_idea = 0
+        LEFT JOIN tasks t ON s.id = t.schedule_id
         WHERE s.date = '연중' AND s.is_completed = 0
         GROUP BY s.id
     ''')
@@ -522,28 +661,30 @@ def schedules():
     conn = get_db()
     cursor = conn.cursor()
 
-    status = request.args.get('status', 'upcoming')
-
-    # 진행률 포함 쿼리
+    # 진행률 포함 쿼리 (전체 일정)
     base_query = '''
         SELECT s.*,
-               COUNT(t.id) as task_count,
-               SUM(CASE WHEN t.is_completed = 1 THEN 1 ELSE 0 END) as completed_count
+               COUNT(CASE WHEN t.is_idea = 0 THEN t.id END) as task_count,
+               SUM(CASE WHEN t.is_completed = 1 AND t.is_idea = 0 THEN 1 ELSE 0 END) as completed_count,
+               COUNT(CASE WHEN t.is_idea = 1 THEN t.id END) as idea_count
         FROM schedules s
-        LEFT JOIN tasks t ON s.id = t.schedule_id AND t.is_idea = 0
+        LEFT JOIN tasks t ON s.id = t.schedule_id
+        GROUP BY s.id
     '''
-
-    if status == 'upcoming':
-        base_query += ' WHERE s.is_completed = 0'
-    elif status == 'completed':
-        base_query += ' WHERE s.is_completed = 1'
-
-    base_query += ' GROUP BY s.id ORDER BY s.date ASC'
 
     cursor.execute(base_query)
     schedules_list = cursor.fetchall()
 
     conn.close()
+
+    # parse_date로 정렬 (초/중순/말 지원)
+    def sort_key(s):
+        dt = parse_date(s['date'])
+        if dt:
+            return dt
+        return datetime(9999, 12, 31)  # 날짜 미정은 맨 뒤
+
+    schedules_list = sorted(schedules_list, key=sort_key)
 
     # 연중 일정과 일반 일정 분리
     yearly_schedules = []
@@ -574,8 +715,7 @@ def schedules():
 
     return render_template('schedules.html',
                            grouped_schedules=grouped_schedules,
-                           yearly_schedules=yearly_schedules,
-                           current_status=status)
+                           yearly_schedules=yearly_schedules)
 
 
 @app.route('/schedule/<schedule_id>')
@@ -674,35 +814,40 @@ def schedule_add():
         category = request.form.get('category', '').strip()
         title = request.form.get('title', '').strip()
         is_confirmed = 1 if request.form.get('is_confirmed') else 0
+        needs_advance_prep = 1 if request.form.get('needs_advance_prep') else 0
         details = request.form.get('details', '')
+        start_time = request.form.get('start_time', '').strip()
+        end_time = request.form.get('end_time', '').strip()
+        location = request.form.get('location', '').strip()
 
         # 유효성 검사
         errors = []
         if not title:
-            errors.append('사업명을 입력해주세요.')
+            errors.append('일정명을 입력해주세요.')
         if not category:
-            errors.append('사업구분을 선택해주세요.')
+            errors.append('분류를 선택해주세요.')
         if date and not validate_date_format(date):
-            errors.append('날짜 형식이 올바르지 않습니다. (YYYY-MM-DD, YYYY-MM, 또는 연중)')
+            errors.append('날짜 형식이 올바르지 않습니다.')
 
         if errors:
             for error in errors:
                 flash(error)
             return render_template('schedule_form.html', schedule=None,
                                    form_data={'date': date, 'category': category, 'title': title,
-                                              'is_confirmed': is_confirmed, 'details': details})
+                                              'is_confirmed': is_confirmed, 'needs_advance_prep': needs_advance_prep,
+                                              'details': details, 'start_time': start_time, 'end_time': end_time, 'location': location})
 
         schedule_id = generate_schedule_id()
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO schedules (id, date, category, title, is_confirmed, details)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (schedule_id, date, category, title, is_confirmed, details))
+            INSERT INTO schedules (id, date, category, title, is_confirmed, needs_advance_prep, details, start_time, end_time, location)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (schedule_id, date, category, title, is_confirmed, needs_advance_prep, details, start_time, end_time, location))
         conn.commit()
         conn.close()
 
-        flash('일정이 추가되었습니다.')
+        flash('추가되었습니다.')
         return redirect(url_for('schedule_detail', schedule_id=schedule_id))
 
     return render_template('schedule_form.html', schedule=None, form_data=None)
@@ -720,35 +865,40 @@ def schedule_edit(schedule_id):
         category = request.form.get('category', '').strip()
         title = request.form.get('title', '').strip()
         is_confirmed = 1 if request.form.get('is_confirmed') else 0
+        needs_advance_prep = 1 if request.form.get('needs_advance_prep') else 0
         details = request.form.get('details', '')
+        start_time = request.form.get('start_time', '').strip()
+        end_time = request.form.get('end_time', '').strip()
+        location = request.form.get('location', '').strip()
 
         # 유효성 검사
         errors = []
         if not title:
-            errors.append('사업명을 입력해주세요.')
+            errors.append('일정명을 입력해주세요.')
         if not category:
-            errors.append('사업구분을 선택해주세요.')
+            errors.append('분류를 선택해주세요.')
         if date and not validate_date_format(date):
-            errors.append('날짜 형식이 올바르지 않습니다. (YYYY-MM-DD, YYYY-MM, 또는 연중)')
+            errors.append('날짜 형식이 올바르지 않습니다.')
 
         if errors:
             for error in errors:
                 flash(error)
-            # 폼 데이터를 유지하여 다시 표시
             form_schedule = {'id': schedule_id, 'date': date, 'category': category,
-                             'title': title, 'is_confirmed': is_confirmed, 'details': details}
+                             'title': title, 'is_confirmed': is_confirmed,
+                             'needs_advance_prep': needs_advance_prep, 'details': details,
+                             'start_time': start_time, 'end_time': end_time, 'location': location}
             conn.close()
             return render_template('schedule_form.html', schedule=form_schedule, form_data=None)
 
         cursor.execute('''
             UPDATE schedules
-            SET date = ?, category = ?, title = ?, is_confirmed = ?, details = ?
+            SET date = ?, category = ?, title = ?, is_confirmed = ?, needs_advance_prep = ?, details = ?, start_time = ?, end_time = ?, location = ?
             WHERE id = ?
-        ''', (date, category, title, is_confirmed, details, schedule_id))
+        ''', (date, category, title, is_confirmed, needs_advance_prep, details, start_time, end_time, location, schedule_id))
         conn.commit()
         conn.close()
 
-        flash('일정이 수정되었습니다.')
+        flash('수정되었습니다.')
         return redirect(url_for('schedule_detail', schedule_id=schedule_id))
 
     cursor.execute('SELECT * FROM schedules WHERE id = ?', (schedule_id,))
@@ -886,40 +1036,42 @@ def tasks():
 @app.route('/task/add', methods=['POST'])
 @approval_required
 def task_add():
-    """실무 추가"""
-    schedule_id = request.form.get('schedule_id', '')
+    """TODO 추가"""
+    schedule_id = request.form.get('schedule_id', '') or None
     priority = int(request.form.get('priority', 1) or 1)
     activist_id = request.form.get('activist_id', '') or None
     is_idea = 1 if request.form.get('is_idea') else 0
     is_draft = 1 if request.form.get('is_draft') else 0
     deadline = request.form.get('deadline', '')
     content = request.form.get('content', '')
+    details = request.form.get('details', '') or None  # 아이디어 상세 내용
 
     if not content.strip():
-        flash('실무 내용을 입력해주세요.')
-        referer = request.form.get('referer', '') or url_for('tasks')
+        flash('내용을 입력해주세요.')
+        referer = request.form.get('referer', '') or url_for('index')
         return redirect(referer)
 
     conn = get_db()
     cursor = conn.cursor()
     created_at = get_kst_now().strftime('%Y-%m-%d %H:%M')
     cursor.execute('''
-        INSERT INTO tasks (schedule_id, priority, activist_id, is_idea, is_draft, deadline, content, is_completed, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
-    ''', (schedule_id, priority, activist_id, is_idea, is_draft, deadline, content, created_at))
+        INSERT INTO tasks (schedule_id, priority, activist_id, is_idea, is_draft, deadline, content, is_completed, created_at, details)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    ''', (schedule_id, priority, activist_id, is_idea, is_draft, deadline, content, created_at, details))
     conn.commit()
     conn.close()
 
+    flash('추가되었습니다.')
     referer = request.form.get('referer', '')
     if referer:
         return redirect(referer)
-    return redirect(url_for('tasks'))
+    return redirect(url_for('index'))
 
 
 @app.route('/task/<int:task_id>/toggle', methods=['POST'])
 @approval_required
 def task_toggle(task_id):
-    """실무 완료/미완료 토글"""
+    """TODO 완료/미완료 토글"""
     conn = get_db()
     cursor = conn.cursor()
 
@@ -938,7 +1090,7 @@ def task_toggle(task_id):
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({'success': True, 'new_status': new_status, 'task_id': task_id})
 
-    referer = request.referrer or url_for('tasks')
+    referer = request.referrer or url_for('index')
     return redirect(referer)
 
 
@@ -959,7 +1111,7 @@ def task_delete(task_id):
 @app.route('/task/<int:task_id>/edit', methods=['POST'])
 @approval_required
 def task_edit(task_id):
-    """실무 수정"""
+    """TODO 수정"""
     conn = get_db()
     cursor = conn.cursor()
 
@@ -967,25 +1119,27 @@ def task_edit(task_id):
     activist_id = request.form.get('activist_id', '') or None
     deadline = request.form.get('deadline', '')
     is_draft = 1 if request.form.get('is_draft') else 0
+    schedule_id = request.form.get('schedule_id', '') or None
+    details = request.form.get('details', '') or None  # 아이디어 상세 내용
 
     if not content:
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'success': False, 'error': '내용을 입력해주세요.'})
         flash('내용을 입력해주세요.')
-        return redirect(request.referrer or url_for('tasks'))
+        return redirect(request.referrer or url_for('index'))
 
     cursor.execute('''
-        UPDATE tasks SET content = ?, activist_id = ?, deadline = ?, is_draft = ?
+        UPDATE tasks SET content = ?, activist_id = ?, deadline = ?, is_draft = ?, schedule_id = ?, details = ?
         WHERE id = ?
-    ''', (content, activist_id, deadline, is_draft, task_id))
+    ''', (content, activist_id, deadline, is_draft, schedule_id, details, task_id))
     conn.commit()
     conn.close()
 
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return jsonify({'success': True, 'task_id': task_id, 'content': content})
 
-    flash('실무가 수정되었습니다.')
-    referer = request.referrer or url_for('tasks')
+    flash('수정되었습니다.')
+    referer = request.referrer or url_for('index')
     return redirect(referer)
 
 
@@ -1013,7 +1167,7 @@ def activists():
 
 
 @app.route('/activist/add', methods=['POST'])
-@approval_required
+@superadmin_required
 def activist_add():
     """활동가 추가"""
     activist_id = request.form.get('id', '').strip().upper()
@@ -1041,7 +1195,7 @@ def activist_add():
 
 
 @app.route('/activist/<activist_id>/edit', methods=['POST'])
-@approval_required
+@superadmin_required
 def activist_edit(activist_id):
     """활동가 정보 수정"""
     new_id = request.form.get('new_id', '').strip().upper()
@@ -1076,7 +1230,7 @@ def activist_edit(activist_id):
 
 
 @app.route('/activist/<activist_id>/delete', methods=['POST'])
-@approval_required
+@superadmin_required
 def activist_delete(activist_id):
     """활동가 삭제"""
     conn = get_db()

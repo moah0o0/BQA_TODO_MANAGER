@@ -1,136 +1,145 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}부산퀴어행동 TODO{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <title>{% block title %}부산퀴어행동{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
+
 <body>
-    <nav class="navbar">
-        <div class="nav-brand">
-            <a href="{{ url_for('index') }}">부산퀴어행동</a>
-        </div>
-        <ul class="nav-links">
-            <li><a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}class="active"{% endif %}>홈</a></li>
-            <li><a href="{{ url_for('meeting') }}" {% if request.endpoint == 'meeting' %}class="active"{% endif %}>회의</a></li>
-            <li><a href="{{ url_for('schedules') }}" {% if request.endpoint in ['schedules', 'schedule_detail', 'schedule_add', 'schedule_edit'] %}class="active"{% endif %}>일정</a></li>
-            <li><a href="{{ url_for('tasks') }}" {% if request.endpoint == 'tasks' %}class="active"{% endif %}>실무</a></li>
-            <li><a href="{{ url_for('ideas') }}" {% if request.endpoint == 'ideas' %}class="active"{% endif %}>아이디어</a></li>
-            <li><a href="{{ url_for('activists') }}" {% if request.endpoint == 'activists' %}class="active"{% endif %}>활동가</a></li>
-        </ul>
-        <div class="nav-user">
+    <!-- 상단 헤더 -->
+    <header class="header">
+        <div class="header-inner">
+            <a href="{{ url_for('index') }}" class="header-title">부산퀴어행동 TODO</a>
             {% if current_user.is_authenticated %}
-            <div class="user-menu">
+            <div class="header-user">
                 {% if current_user.picture %}
-                <img src="{{ current_user.picture }}" alt="" class="user-avatar">
+                <img src="{{ current_user.picture }}" alt="" class="avatar">
                 {% else %}
-                <span class="user-avatar-placeholder">{{ current_user.name[0] if current_user.name else '?' }}</span>
+                <span class="avatar">{{ current_user.name[0] if current_user.name else '?' }}</span>
                 {% endif %}
-                <div class="user-dropdown">
-                    <div class="user-info">
-                        <strong>{{ current_user.name or current_user.email }}</strong>
-                        <small>{{ current_user.email }}</small>
+                <div class="user-menu">
+                    <div class="user-menu-content">
+                        <div class="user-menu-name">{{ current_user.name or current_user.email }}</div>
+                        <div class="user-menu-link">
+                            <form action="{{ url_for('link_activist') }}" method="post" class="link-activist-form">
+                                <label>내 활동가</label>
+                                <select name="activist_id" onchange="this.form.submit()">
+                                    <option value="">연결 안함</option>
+                                    {% for activist in all_activists %}
+                                    <option value="{{ activist.id }}" {% if current_user.activist_id==activist.id
+                                        %}selected{% endif %}>{{ activist.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <small class="menu-help">연결하면 내 TODO가 먼저 표시돼요</small>
+                            </form>
+                        </div>
+                        <a href="{{ url_for('activists') }}">활동가 관리</a>
+                        <a href="{{ url_for('admin_users') }}">사용자 관리</a>
+                        <a href="{{ url_for('logout') }}" class="logout">로그아웃</a>
                     </div>
-                    <hr>
-                    <a href="{{ url_for('admin_users') }}">사용자 관리</a>
-                    <a href="{{ url_for('logout') }}">로그아웃</a>
                 </div>
             </div>
             {% endif %}
         </div>
+    </header>
+
+    <!-- 메인 탭 네비게이션 -->
+    <nav class="tab-nav">
+        <div class="tab-nav-inner">
+            <a href="{{ url_for('index') }}" class="tab-item {% if request.endpoint == 'index' %}active{% endif %}">
+                <span class="tab-icon">📋</span>
+                <span>TODO</span>
+            </a>
+            <a href="{{ url_for('schedules') }}"
+                class="tab-item {% if request.endpoint in ['schedules', 'schedule_detail', 'schedule_add', 'schedule_edit'] %}active{% endif %}">
+                <span class="tab-icon">📅</span>
+                <span>일정</span>
+            </a>
+        </div>
     </nav>
 
-    <main class="container">
-        {% with messages = get_flashed_messages() %}
-        {% if messages %}
-        <div class="flash-messages">
-            {% for message in messages %}
-            <div class="flash-message {% if '입력' in message or '선택' in message or '올바르지' in message or '없습니다' in message or '실패' in message %}error{% endif %}">{{ message }}</div>
-            {% endfor %}
-        </div>
-        {% endif %}
-        {% endwith %}
+    <!-- 플래시 메시지 -->
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+    <div class="toast-area">
+        {% for message in messages %}
+        <div
+            class="toast {% if '입력' in message or '선택' in message or '올바르지' in message or '없습니다' in message or '실패' in message %}error{% endif %}">
+            {{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
 
+    <!-- 메인 콘텐츠 -->
+    <main class="main">
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="footer">
-        부산퀴어행동 TODO 매니저
-    </footer>
-
-    <!-- 토스트 컨테이너 -->
-    <div id="toast-container" class="toast-container"></div>
-
     <script>
-    // 토스트 알림 함수
-    function showToast(message, undoCallback) {
-        const container = document.getElementById('toast-container');
-        const toast = document.createElement('div');
-        toast.className = 'toast';
-        toast.innerHTML = `
-            <span class="toast-message">${message}</span>
-            ${undoCallback ? '<button class="toast-action" onclick="undoAction(this)">실행 취소</button>' : ''}
-            <div class="toast-progress"></div>
-        `;
+        // 체크박스 토글
+        function toggleTask(taskId, btn) {
+            const item = btn.closest('.task-row');
 
-        if (undoCallback) {
-            toast.undoCallback = undoCallback;
+            fetch(`/task/${taskId}/toggle`, {
+                method: 'POST',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        if (data.new_status === 1) {
+                            item.classList.add('done');
+                            btn.textContent = '✓';
+                        } else {
+                            item.classList.remove('done');
+                            btn.textContent = '';
+                        }
+                    }
+                })
+                .catch(() => location.reload());
         }
 
-        container.appendChild(toast);
-
-        // 5초 후 자동 닫기
-        setTimeout(() => {
-            toast.classList.add('hide');
-            setTimeout(() => toast.remove(), 300);
-        }, 5000);
-    }
-
-    function undoAction(btn) {
-        const toast = btn.closest('.toast');
-        if (toast.undoCallback) {
-            toast.undoCallback();
-        }
-        toast.classList.add('hide');
-        setTimeout(() => toast.remove(), 300);
-    }
-
-    // AJAX로 실무 토글
-    function toggleTask(taskId, checkbox) {
-        const taskItem = checkbox.closest('.task-item');
-        const wasCompleted = taskItem.classList.contains('completed');
-
-        fetch(`/task/${taskId}/toggle`, {
-            method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // UI 즉시 업데이트
-                if (data.new_status === 1) {
-                    taskItem.classList.add('completed');
-                    checkbox.classList.add('checked');
-                    checkbox.innerHTML = '✓';
-                    showToast('실무를 완료했습니다', () => toggleTask(taskId, checkbox));
-                } else {
-                    taskItem.classList.remove('completed');
-                    checkbox.classList.remove('checked');
-                    checkbox.innerHTML = '';
-                }
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            // 오류 시 페이지 새로고침
-            location.reload();
+        // 토스트 자동 숨김
+        document.querySelectorAll('.toast').forEach(toast => {
+            setTimeout(() => toast.remove(), 3000);
         });
 
-        return false; // 폼 제출 방지
-    }
+        // 스크롤 위치 저장/복원
+        const scrollKey = 'scroll_' + location.pathname;
+
+        // 페이지 로드 시 스크롤 위치 복원
+        if (sessionStorage.getItem(scrollKey)) {
+            const savedScroll = parseInt(sessionStorage.getItem(scrollKey));
+            // 약간의 딜레이 후 복원 (DOM 렌더링 완료 대기)
+            requestAnimationFrame(() => {
+                window.scrollTo(0, savedScroll);
+            });
+        }
+
+        // 링크 클릭 시 현재 스크롤 위치 저장
+        document.addEventListener('click', (e) => {
+            const link = e.target.closest('a');
+            if (link && link.href && !link.href.startsWith('javascript:')) {
+                sessionStorage.setItem(scrollKey, window.scrollY);
+            }
+        });
+
+        // 뒤로가기 시 스크롤 복원 (popstate)
+        window.addEventListener('pageshow', (e) => {
+            if (e.persisted || performance.getEntriesByType('navigation')[0]?.type === 'back_forward') {
+                const saved = sessionStorage.getItem(scrollKey);
+                if (saved) {
+                    window.scrollTo(0, parseInt(saved));
+                }
+            }
+        });
     </script>
 </body>
+
 </html>
