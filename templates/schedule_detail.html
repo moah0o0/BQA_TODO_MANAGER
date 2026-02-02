@@ -78,6 +78,7 @@
                 </div>
             </div>
             <div class="task-actions">
+                <button type="button" class="btn btn-ghost btn-sm" onclick="openEditModal({{ task.id }}, `{{ task.content | replace('`', '\\`') | replace('\n', '\\n') }}`, '{{ task.activist_id or '' }}', '', 0, true)">수정</button>
                 <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
                       onsubmit="return confirm('삭제하시겠습니까?');">
                     <button type="submit" class="btn btn-danger btn-sm">삭제</button>
@@ -137,6 +138,7 @@
                 </div>
             </div>
             <div class="task-actions">
+                <button type="button" class="btn btn-ghost btn-sm" onclick="openEditModal({{ task.id }}, `{{ task.content | replace('`', '\\`') | replace('\n', '\\n') }}`, '{{ task.activist_id or '' }}', '{{ task.deadline or '' }}', {{ task.is_draft }}, false)">수정</button>
                 <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
                       onsubmit="return confirm('삭제하시겠습니까?');">
                     <button type="submit" class="btn btn-danger btn-sm">삭제</button>
@@ -180,4 +182,141 @@
         <span class="badge badge-idea">아이디어</span> 세부내용에 대한 아이디어. 회의에서 논의 후 반영하세요.
     </div>
 </div>
+
+<!-- 수정 모달 -->
+<div id="editModal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeEditModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">실무 수정</h3>
+            <button type="button" class="modal-close" onclick="closeEditModal()">&times;</button>
+        </div>
+        <form id="editForm" method="post">
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>내용</label>
+                    <input type="text" name="content" id="editContent" class="form-control" required>
+                </div>
+                <div class="form-group">
+                    <label>담당자</label>
+                    <select name="activist_id" id="editActivist" class="form-control">
+                        <option value="">미정</option>
+                        {% for activist in activists %}
+                        <option value="{{ activist.id }}">{{ activist.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" id="deadlineGroup">
+                    <label>마감일</label>
+                    <input type="date" name="deadline" id="editDeadline" class="form-control">
+                </div>
+                <div class="form-group" id="draftGroup">
+                    <label class="form-check">
+                        <input type="checkbox" name="is_draft" id="editDraft" value="1">
+                        가안 (아직 확정되지 않은 실무)
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeEditModal()">취소</button>
+                <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+}
+.modal-content {
+    position: relative;
+    background: var(--bg-main);
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+}
+.modal-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+.modal-body {
+    padding: 20px;
+}
+.modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.form-group {
+    margin-bottom: 16px;
+}
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+</style>
+
+<script>
+function openEditModal(taskId, content, activistId, deadline, isDraft, isIdea) {
+    document.getElementById('editForm').action = `/task/${taskId}/edit`;
+    document.getElementById('editContent').value = content;
+    document.getElementById('editActivist').value = activistId || '';
+    document.getElementById('editDeadline').value = deadline || '';
+    document.getElementById('editDraft').checked = isDraft == 1;
+
+    // 아이디어인 경우 마감일과 가안 옵션 숨기기
+    document.getElementById('deadlineGroup').style.display = isIdea ? 'none' : 'block';
+    document.getElementById('draftGroup').style.display = isIdea ? 'none' : 'block';
+
+    document.getElementById('editModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+}
+
+// ESC 키로 모달 닫기
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeEditModal();
+    }
+});
+</script>
 {% endblock %}

@@ -956,6 +956,39 @@ def task_delete(task_id):
     return redirect(referer)
 
 
+@app.route('/task/<int:task_id>/edit', methods=['POST'])
+@approval_required
+def task_edit(task_id):
+    """실무 수정"""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    content = request.form.get('content', '').strip()
+    activist_id = request.form.get('activist_id', '') or None
+    deadline = request.form.get('deadline', '')
+    is_draft = 1 if request.form.get('is_draft') else 0
+
+    if not content:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'error': '내용을 입력해주세요.'})
+        flash('내용을 입력해주세요.')
+        return redirect(request.referrer or url_for('tasks'))
+
+    cursor.execute('''
+        UPDATE tasks SET content = ?, activist_id = ?, deadline = ?, is_draft = ?
+        WHERE id = ?
+    ''', (content, activist_id, deadline, is_draft, task_id))
+    conn.commit()
+    conn.close()
+
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify({'success': True, 'task_id': task_id, 'content': content})
+
+    flash('실무가 수정되었습니다.')
+    referer = request.referrer or url_for('tasks')
+    return redirect(referer)
+
+
 # ========== 활동가 관리 ==========
 
 @app.route('/activists')
