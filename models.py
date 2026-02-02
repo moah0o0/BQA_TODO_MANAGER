@@ -77,8 +77,68 @@ def init_db():
         )
     ''')
 
+    # 사용자 테이블 (Google OAuth)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            google_id TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            name TEXT,
+            picture TEXT,
+            is_approved INTEGER DEFAULT 0,
+            created_at TEXT
+        )
+    ''')
+
     conn.commit()
     conn.close()
+
+
+class User:
+    """Flask-Login용 User 클래스"""
+    def __init__(self, id, google_id, email, name, picture, is_approved):
+        self.id = id
+        self.google_id = google_id
+        self.email = email
+        self.name = name
+        self.picture = picture
+        self.is_approved = is_approved
+
+    def is_authenticated(self):
+        return True
+
+    def is_active(self):
+        return self.is_approved == 1
+
+    def is_anonymous(self):
+        return False
+
+    def get_id(self):
+        return str(self.id)
+
+    @staticmethod
+    def get(user_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return User(row['id'], row['google_id'], row['email'],
+                       row['name'], row['picture'], row['is_approved'])
+        return None
+
+    @staticmethod
+    def get_by_google_id(google_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM users WHERE google_id = ?', (google_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return User(row['id'], row['google_id'], row['email'],
+                       row['name'], row['picture'], row['is_approved'])
+        return None
 
 def seed_initial_data():
     """초기 데이터를 삽입합니다."""

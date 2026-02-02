@@ -1,7 +1,15 @@
 import os
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
+
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from datetime import datetime, timedelta, timezone
-from models import get_db, init_db, seed_initial_data, generate_schedule_id
+from models import get_db, init_db, seed_initial_data, generate_schedule_id, User
+from authlib.integrations.flask_client import OAuth
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from functools import wraps
 
 # 한국 시간대 (KST = UTC+9)
 KST = timezone(timedelta(hours=9))
@@ -12,6 +20,38 @@ def get_kst_now():
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'busan-queer-action-2026-dev')
+
+# Flask-Login 설정
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = '로그인이 필요합니다.'
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.get(user_id)
+
+# OAuth 설정
+oauth = OAuth(app)
+google = oauth.register(
+    name='google',
+    client_id=os.environ.get('GOOGLE_CLIENT_ID'),
+    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+def approval_required(f):
+    """승인된 사용자만 접근 가능하도록 하는 데코레이터"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login'))
+        if not current_user.is_active():
+            flash('관리자의 승인이 필요합니다.')
+            return redirect(url_for('pending_approval'))
+        return f(*args, **kwargs)
+    return decorated_function
 
 # 앱 시작 시 DB 초기화
 with app.app_context():
@@ -146,7 +186,138 @@ app.jinja_env.filters['dday_class'] = lambda d: calc_dday(d)[1]
 app.jinja_env.filters['date_kr'] = format_date_kr
 
 
+# ========== 인증 ==========
+
+@app.route('/login')
+def login():
+    """로그인 페이지"""
+    if current_user.is_authenticated:
+        if current_user.is_active():
+            return redirect(url_for('index'))
+        return redirect(url_for('pending_approval'))
+    return render_template('login.html')
+
+
+@app.route('/login/google')
+def login_google():
+    """Google OAuth 로그인 시작"""
+    redirect_uri = url_for('auth_callback', _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route('/auth/callback')
+def auth_callback():
+    """Google OAuth 콜백"""
+    try:
+        token = google.authorize_access_token()
+        user_info = token.get('userinfo')
+
+        if not user_info:
+            flash('Google 로그인에 실패했습니다.')
+            return redirect(url_for('login'))
+
+        google_id = user_info.get('sub')
+        email = user_info.get('email')
+        name = user_info.get('name')
+        picture = user_info.get('picture')
+
+        # 기존 사용자 확인
+        user = User.get_by_google_id(google_id)
+
+        if not user:
+            # 새 사용자 생성
+            conn = get_db()
+            cursor = conn.cursor()
+
+            # 첫 번째 사용자인지 확인 (자동 승인)
+            cursor.execute('SELECT COUNT(*) FROM users')
+            is_first_user = cursor.fetchone()[0] == 0
+            is_approved = 1 if is_first_user else 0
+
+            created_at = get_kst_now().strftime('%Y-%m-%d %H:%M')
+            cursor.execute('''
+                INSERT INTO users (google_id, email, name, picture, is_approved, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (google_id, email, name, picture, is_approved, created_at))
+            conn.commit()
+            user_id = cursor.lastrowid
+            conn.close()
+
+            user = User(user_id, google_id, email, name, picture, is_approved)
+            if is_first_user:
+                flash('첫 번째 사용자로 자동 승인되었습니다!')
+            else:
+                flash('가입이 완료되었습니다. 관리자 승인을 기다려주세요.')
+
+        login_user(user)
+
+        if user.is_active():
+            return redirect(url_for('index'))
+        return redirect(url_for('pending_approval'))
+
+    except Exception as e:
+        flash(f'로그인 중 오류가 발생했습니다: {str(e)}')
+        return redirect(url_for('login'))
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    """로그아웃"""
+    logout_user()
+    flash('로그아웃되었습니다.')
+    return redirect(url_for('login'))
+
+
+@app.route('/pending')
+@login_required
+def pending_approval():
+    """승인 대기 페이지"""
+    if current_user.is_active():
+        return redirect(url_for('index'))
+    return render_template('pending.html')
+
+
+@app.route('/admin/users')
+@approval_required
+def admin_users():
+    """사용자 관리 (관리자용)"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users ORDER BY created_at DESC')
+    users = cursor.fetchall()
+    conn.close()
+    return render_template('admin_users.html', users=users)
+
+
+@app.route('/admin/user/<int:user_id>/approve', methods=['POST'])
+@approval_required
+def admin_approve_user(user_id):
+    """사용자 승인"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET is_approved = 1 WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    flash('사용자가 승인되었습니다.')
+    return redirect(url_for('admin_users'))
+
+
+@app.route('/admin/user/<int:user_id>/revoke', methods=['POST'])
+@approval_required
+def admin_revoke_user(user_id):
+    """사용자 승인 취소"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE users SET is_approved = 0 WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    flash('사용자 승인이 취소되었습니다.')
+    return redirect(url_for('admin_users'))
+
+
 @app.route('/')
+@approval_required
 def index():
     """대시보드"""
     conn = get_db()
@@ -215,6 +386,7 @@ def index():
 # ========== 일정 관리 ==========
 
 @app.route('/meeting')
+@approval_required
 def meeting():
     """회의용 뷰 - 30일 기준으로 일정과 실무 정리"""
     conn = get_db()
@@ -344,6 +516,7 @@ def meeting():
 
 
 @app.route('/schedules')
+@approval_required
 def schedules():
     """일정 목록"""
     conn = get_db()
@@ -406,6 +579,7 @@ def schedules():
 
 
 @app.route('/schedule/<schedule_id>')
+@approval_required
 def schedule_detail(schedule_id):
     """일정 상세 페이지"""
     conn = get_db()
@@ -492,6 +666,7 @@ def validate_date_format(date_str):
 
 
 @app.route('/schedule/add', methods=['GET', 'POST'])
+@approval_required
 def schedule_add():
     """일정 추가"""
     if request.method == 'POST':
@@ -534,6 +709,7 @@ def schedule_add():
 
 
 @app.route('/schedule/<schedule_id>/edit', methods=['GET', 'POST'])
+@approval_required
 def schedule_edit(schedule_id):
     """일정 수정"""
     conn = get_db()
@@ -587,6 +763,7 @@ def schedule_edit(schedule_id):
 
 
 @app.route('/schedule/<schedule_id>/delete', methods=['POST'])
+@approval_required
 def schedule_delete(schedule_id):
     """일정 삭제"""
     conn = get_db()
@@ -601,6 +778,7 @@ def schedule_delete(schedule_id):
 
 
 @app.route('/schedule/<schedule_id>/toggle_complete', methods=['POST'])
+@approval_required
 def schedule_toggle_complete(schedule_id):
     """일정 완료/미완료 토글"""
     conn = get_db()
@@ -623,6 +801,7 @@ def schedule_toggle_complete(schedule_id):
 # ========== 실무/TODO 관리 ==========
 
 @app.route('/tasks')
+@approval_required
 def tasks():
     """전체 실무 목록"""
     conn = get_db()
@@ -705,6 +884,7 @@ def tasks():
 
 
 @app.route('/task/add', methods=['POST'])
+@approval_required
 def task_add():
     """실무 추가"""
     schedule_id = request.form.get('schedule_id', '')
@@ -737,6 +917,7 @@ def task_add():
 
 
 @app.route('/task/<int:task_id>/toggle', methods=['POST'])
+@approval_required
 def task_toggle(task_id):
     """실무 완료/미완료 토글"""
     conn = get_db()
@@ -762,6 +943,7 @@ def task_toggle(task_id):
 
 
 @app.route('/task/<int:task_id>/delete', methods=['POST'])
+@approval_required
 def task_delete(task_id):
     """실무 삭제"""
     conn = get_db()
@@ -777,6 +959,7 @@ def task_delete(task_id):
 # ========== 활동가 관리 ==========
 
 @app.route('/activists')
+@approval_required
 def activists():
     """활동가 목록"""
     conn = get_db()
@@ -797,6 +980,7 @@ def activists():
 
 
 @app.route('/activist/add', methods=['POST'])
+@approval_required
 def activist_add():
     """활동가 추가"""
     activist_id = request.form.get('id', '').strip().upper()
@@ -824,6 +1008,7 @@ def activist_add():
 
 
 @app.route('/activist/<activist_id>/edit', methods=['POST'])
+@approval_required
 def activist_edit(activist_id):
     """활동가 정보 수정"""
     new_id = request.form.get('new_id', '').strip().upper()
@@ -858,6 +1043,7 @@ def activist_edit(activist_id):
 
 
 @app.route('/activist/<activist_id>/delete', methods=['POST'])
+@approval_required
 def activist_delete(activist_id):
     """활동가 삭제"""
     conn = get_db()
@@ -876,6 +1062,7 @@ def activist_delete(activist_id):
 # ========== 사업 아이디어 ==========
 
 @app.route('/ideas')
+@approval_required
 def ideas():
     """사업 아이디어 목록 - 일정과 무관한 아이디어"""
     conn = get_db()
@@ -917,6 +1104,7 @@ def ideas():
 
 
 @app.route('/idea/add', methods=['POST'])
+@approval_required
 def idea_add():
     """사업 아이디어 추가"""
     content = request.form.get('content', '').strip()
@@ -941,6 +1129,7 @@ def idea_add():
 
 
 @app.route('/idea/<int:idea_id>/toggle', methods=['POST'])
+@approval_required
 def idea_toggle(idea_id):
     """아이디어 채택 토글"""
     conn = get_db()
@@ -964,6 +1153,7 @@ def idea_toggle(idea_id):
 
 
 @app.route('/idea/<int:idea_id>/delete', methods=['POST'])
+@approval_required
 def idea_delete(idea_id):
     """아이디어 삭제"""
     conn = get_db()

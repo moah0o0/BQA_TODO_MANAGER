@@ -19,6 +19,26 @@
             <li><a href="{{ url_for('ideas') }}" {% if request.endpoint == 'ideas' %}class="active"{% endif %}>아이디어</a></li>
             <li><a href="{{ url_for('activists') }}" {% if request.endpoint == 'activists' %}class="active"{% endif %}>활동가</a></li>
         </ul>
+        <div class="nav-user">
+            {% if current_user.is_authenticated %}
+            <div class="user-menu">
+                {% if current_user.picture %}
+                <img src="{{ current_user.picture }}" alt="" class="user-avatar">
+                {% else %}
+                <span class="user-avatar-placeholder">{{ current_user.name[0] if current_user.name else '?' }}</span>
+                {% endif %}
+                <div class="user-dropdown">
+                    <div class="user-info">
+                        <strong>{{ current_user.name or current_user.email }}</strong>
+                        <small>{{ current_user.email }}</small>
+                    </div>
+                    <hr>
+                    <a href="{{ url_for('admin_users') }}">사용자 관리</a>
+                    <a href="{{ url_for('logout') }}">로그아웃</a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
     </nav>
 
     <main class="container">

@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+
+{% block title %}사용자 관리 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">사용자 관리</h1>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        {% if users %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>프로필</th>
+                    <th>이름</th>
+                    <th>이메일</th>
+                    <th>가입일</th>
+                    <th>상태</th>
+                    <th>관리</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>
+                        {% if user['picture'] %}
+                        <img src="{{ user['picture'] }}" alt="" style="width: 32px; height: 32px; border-radius: 50%;">
+                        {% else %}
+                        <span style="display: inline-block; width: 32px; height: 32px; background: var(--bg-secondary); border-radius: 50%; text-align: center; line-height: 32px;">👤</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user['name'] or '-' }}</td>
+                    <td>{{ user['email'] }}</td>
+                    <td>{{ user['created_at'] or '-' }}</td>
+                    <td>
+                        {% if user['is_approved'] %}
+                        <span class="badge badge-green">승인됨</span>
+                        {% else %}
+                        <span class="badge badge-yellow">대기중</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user['is_approved'] %}
+                        <form action="{{ url_for('admin_revoke_user', user_id=user['id']) }}" method="POST" style="display: inline;">
+                            <button type="submit" class="btn btn-ghost btn-sm" onclick="return confirm('승인을 취소하시겠습니까?')">승인 취소</button>
+                        </form>
+                        {% else %}
+                        <form action="{{ url_for('admin_approve_user', user_id=user['id']) }}" method="POST" style="display: inline;">
+                            <button type="submit" class="btn btn-primary btn-sm">승인</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="empty-state">등록된 사용자가 없습니다.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
