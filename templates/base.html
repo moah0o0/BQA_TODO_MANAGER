@@ -139,6 +139,24 @@
                 }
             }
         });
+
+        // 모바일 키보드 열릴 때 하단바 숨김 처리
+        const tabNav = document.querySelector('.tab-nav');
+        if (tabNav && window.visualViewport) {
+            const initialHeight = window.visualViewport.height;
+
+            window.visualViewport.addEventListener('resize', () => {
+                // 키보드가 열리면 뷰포트 높이가 줄어듦
+                const heightDiff = initialHeight - window.visualViewport.height;
+                if (heightDiff > 150) {
+                    // 키보드 열림 - 하단바 숨김
+                    tabNav.style.display = 'none';
+                } else {
+                    // 키보드 닫힘 - 하단바 표시
+                    tabNav.style.display = '';
+                }
+            });
+        }
     </script>
 </body>
 
