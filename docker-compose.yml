@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - SECRET_KEY=your-secret-key-here
+      - DATABASE_PATH=/app/data/database.db
+      - FLASK_ENV=production
+    restart: unless-stopped

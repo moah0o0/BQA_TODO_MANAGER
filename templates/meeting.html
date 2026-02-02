@@ -1,0 +1,220 @@
+{% extends "base.html" %}
+
+{% block title %}회의 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>회의</h1>
+    <p class="page-subtitle">{{ today_str }} 기준 · 회의에서 함께 점검할 내용</p>
+</div>
+
+<!-- 회의 페이지 안내 -->
+<div class="info-box">
+    <div class="info-box-title">📌 이 페이지 사용법</div>
+    <div class="info-box-content">
+        <p>회의 시간에 이 화면을 띄워두고 함께 점검하세요.</p>
+        <ul class="info-list">
+            <li><strong>30일 이내 일정</strong>: 곧 다가오는 일정들입니다. <span class="badge badge-pending">기획 확정 필요</span>가 표시된 일정은 회의에서 세부 계획을 확정해야 합니다.</li>
+            <li><strong>사전 준비 필요</strong>: 일정은 30일 이후지만, 마감이 30일 이내인 실무입니다. 미리 준비해야 할 것들이에요.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- 연중 일정 알림 -->
+{% if yearly_schedules %}
+<div class="yearly-reminder">
+    <div class="yearly-reminder-icon">📅</div>
+    <div class="yearly-reminder-content">
+        <div class="yearly-reminder-title">연중 1회 진행하는 일정이 있습니다</div>
+        <div class="yearly-reminder-desc">아래 일정은 연중 적절한 시기에 기획이 필요합니다. 이번 달에 진행할지 논의해보세요.</div>
+        <div class="yearly-reminder-list">
+            {% for schedule in yearly_schedules %}
+            <a href="{{ url_for('schedule_detail', schedule_id=schedule.id) }}" class="yearly-reminder-item">
+                <span class="yearly-reminder-item-title">{{ schedule.title }}</span>
+                <span class="badge badge-category">{{ schedule.category }}</span>
+                {% if not schedule.is_confirmed %}<span class="badge badge-pending">미확정</span>{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 30일 이내 일정 -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📅 30일 이내 일정</div>
+        <span class="section-count">{{ upcoming_schedules|length }}건</span>
+    </div>
+    <p class="section-description">곧 진행되는 일정과 해당 실무 목록입니다. 체크박스를 눌러 완료 처리할 수 있습니다.</p>
+
+    {% if upcoming_schedules %}
+    <div class="meeting-list">
+        {% for schedule in upcoming_schedules %}
+        <div class="meeting-card">
+            <div class="meeting-card-header">
+                <div class="meeting-card-title">
+                    <a href="{{ url_for('schedule_detail', schedule_id=schedule.id) }}" title="상세 페이지로 이동">{{ schedule.title }}</a>
+                </div>
+                <div class="meeting-card-meta">
+                    <span class="badge badge-category">{{ schedule.category }}</span>
+                    {% if schedule.is_confirmed %}
+                    <span class="badge badge-confirmed" title="기획이 확정된 일정입니다">확정</span>
+                    {% else %}
+                    <span class="badge badge-pending" title="회의에서 기획을 확정해주세요">기획 확정 필요</span>
+                    {% endif %}
+                    <span class="meeting-date">{{ schedule.date | date_kr }}</span>
+                    <span class="dday {{ schedule.dday_class }}">{{ schedule.dday_text }}</span>
+                </div>
+            </div>
+
+            {% if schedule.tasks %}
+            <div class="meeting-card-tasks-header">
+                <span class="label">실무 목록</span>
+                <span class="hint">완료한 항목은 체크하세요</span>
+            </div>
+            <ul class="task-list compact">
+                {% for task in schedule.tasks %}
+                <li class="task-item {% if task.is_completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+                    <button type="button" class="checkbox-btn {% if task.is_completed %}checked{% endif %}" onclick="toggleTask({{ task.id }}, this)" title="클릭하여 완료/미완료 전환">
+                        {% if task.is_completed %}✓{% endif %}
+                    </button>
+                    <div class="task-content">
+                        <div class="task-text">
+                            {% if task.is_draft %}<span class="badge badge-draft" title="아직 확정되지 않은 실무">가안</span> {% endif %}
+                            {% if task.is_idea %}<span class="badge badge-idea" title="세부내용 아이디어">아이디어</span> {% endif %}
+                            {{ task.content }}
+                        </div>
+                        <div class="task-meta">
+                            {% if task.deadline %}
+                            <span class="deadline-date">{{ task.deadline | date_kr }}</span>
+                            <span class="dday {{ task.deadline | dday_class }}">{{ task.deadline | dday }}</span>
+                            {% endif %}
+<span class="assignee {% if not task.activist_name %}unassigned{% endif %}" title="담당자">{{ task.activist_name or '미정' }}</span>
+                        </div>
+                    </div>
+                    <div class="task-actions">
+                        <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
+                              onsubmit="return confirm('삭제하시겠습니까?');">
+                            <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+                        </form>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <!-- 실무 추가 폼 -->
+            <form action="{{ url_for('task_add') }}" method="post" class="add-form compact">
+                <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
+                <input type="hidden" name="referer" value="{{ request.url }}">
+                <input type="text" name="content" placeholder="+ 실무 추가..." required>
+                <select name="activist_id" class="form-control" style="width: auto;">
+                    <option value="">담당</option>
+                    {% for activist in activists %}
+                    <option value="{{ activist.id }}">{{ activist.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="date" name="deadline" class="form-control" style="width: 130px;" title="마감일">
+                <button type="submit" class="btn btn-primary btn-sm">추가</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-message">30일 이내 예정된 일정이 없습니다</div>
+        <div class="empty-hint">새 일정을 추가하면 여기에 표시됩니다</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 30일 이후 일정 중 마감 임박 실무 -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">⏰ 사전 준비 필요</div>
+        <span class="section-count">{{ future_tasks|length }}건</span>
+    </div>
+    <p class="section-description">일정 자체는 30일 이후지만, 마감이 30일 이내인 실무입니다. 미리 준비해야 하는 것들이에요!</p>
+
+    {% if future_schedules %}
+    <div class="meeting-list">
+        {% for schedule in future_schedules %}
+        <div class="meeting-card future-schedule">
+            <div class="meeting-card-header">
+                <div class="meeting-card-title">
+                    <a href="{{ url_for('schedule_detail', schedule_id=schedule.id) }}" title="상세 페이지로 이동">{{ schedule.title }}</a>
+                </div>
+                <div class="meeting-card-meta">
+                    <span class="badge badge-category">{{ schedule.category }}</span>
+                    {% if schedule.is_confirmed %}
+                    <span class="badge badge-confirmed" title="기획이 확정된 일정입니다">확정</span>
+                    {% else %}
+                    <span class="badge badge-pending" title="회의에서 기획을 확정해주세요">기획 확정 필요</span>
+                    {% endif %}
+                    <span class="meeting-date">일정: {{ schedule.date | date_kr }}</span>
+                    <span class="dday {{ schedule.dday_class }}">{{ schedule.dday_text }}</span>
+                </div>
+            </div>
+
+            {% if schedule.tasks %}
+            <div class="meeting-card-tasks-header">
+                <span class="label">마감 임박 실무</span>
+                <span class="hint">30일 이내 마감</span>
+            </div>
+            <ul class="task-list compact">
+                {% for task in schedule.tasks %}
+                <li class="task-item {% if task.is_completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+                    <button type="button" class="checkbox-btn {% if task.is_completed %}checked{% endif %}" onclick="toggleTask({{ task.id }}, this)" title="클릭하여 완료/미완료 전환">
+                        {% if task.is_completed %}✓{% endif %}
+                    </button>
+                    <div class="task-content">
+                        <div class="task-text">
+                            {% if task.is_draft %}<span class="badge badge-draft" title="아직 확정되지 않은 실무">가안</span> {% endif %}
+                            {% if task.is_idea %}<span class="badge badge-idea" title="세부내용 아이디어">아이디어</span> {% endif %}
+                            {{ task.content }}
+                        </div>
+                        <div class="task-meta">
+                            {% if task.deadline %}
+                            <span class="deadline-date">{{ task.deadline | date_kr }}</span>
+                            <span class="dday {{ task.deadline | dday_class }}">{{ task.deadline | dday }}</span>
+                            {% endif %}
+                            <span class="assignee {% if not task.activist_name %}unassigned{% endif %}" title="담당자">{{ task.activist_name or '미정' }}</span>
+                        </div>
+                    </div>
+                    <div class="task-actions">
+                        <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
+                              onsubmit="return confirm('삭제하시겠습니까?');">
+                            <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+                        </form>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            <!-- 실무 추가 폼 -->
+            <form action="{{ url_for('task_add') }}" method="post" class="add-form compact">
+                <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
+                <input type="hidden" name="referer" value="{{ request.url }}">
+                <input type="text" name="content" placeholder="+ 실무 추가..." required>
+                <select name="activist_id" class="form-control" style="width: auto;">
+                    <option value="">담당</option>
+                    {% for activist in activists %}
+                    <option value="{{ activist.id }}">{{ activist.name }}</option>
+                    {% endfor %}
+                </select>
+                <input type="date" name="deadline" class="form-control" style="width: 130px;" title="마감일">
+                <button type="submit" class="btn btn-primary btn-sm">추가</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">✨</div>
+        <div class="empty-message">사전 준비가 필요한 실무가 없습니다</div>
+        <div class="empty-hint">30일 이후 일정 중 마감이 임박한 실무가 있으면 여기에 표시됩니다</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

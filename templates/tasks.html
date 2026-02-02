@@ -1,0 +1,267 @@
+{% extends "base.html" %}
+
+{% block title %}실무 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>실무</h1>
+    <p class="page-subtitle">모든 일정의 실무를 한 곳에서 관리합니다</p>
+</div>
+
+<!-- 필터 설명 -->
+<div class="filter-bar">
+    <div class="tabs" style="margin-bottom: 0;">
+        <a href="{{ url_for('tasks', show_completed='1', activist=filter_activist, month=filter_month) }}"
+           class="tab {% if show_completed %}active{% endif %}" title="완료된 실무 포함">전체</a>
+        <a href="{{ url_for('tasks', show_completed='0', activist=filter_activist, month=filter_month) }}"
+           class="tab {% if not show_completed %}active{% endif %}" title="아직 완료되지 않은 실무만">예정</a>
+    </div>
+
+    <select class="filter-select" onchange="applyFilter('activist', this.value)" title="특정 담당자의 실무만 보기">
+        <option value="">모든 담당자</option>
+        {% for activist in activists %}
+        <option value="{{ activist.id }}" {% if filter_activist == activist.id %}selected{% endif %}>{{ activist.name }}</option>
+        {% endfor %}
+    </select>
+
+    <select class="filter-select" onchange="applyFilter('month', this.value)" title="특정 월의 마감 실무만 보기">
+        <option value="">모든 기간</option>
+        {% for month in months %}
+        <option value="{{ month }}" {% if filter_month == month %}selected{% endif %}>{{ month }}</option>
+        {% endfor %}
+    </select>
+</div>
+
+<!-- 현재 필터 상태 표시 -->
+{% if filter_activist or filter_month %}
+<div class="filter-status">
+    <span class="filter-status-label">적용된 필터:</span>
+    {% if filter_activist %}
+    <span class="filter-tag">
+        담당자: {% for a in activists %}{% if a.id == filter_activist %}{{ a.name }}{% endif %}{% endfor %}
+        <a href="{{ url_for('tasks', show_completed='1' if show_completed else '0', month=filter_month) }}" class="filter-remove" title="필터 해제">×</a>
+    </span>
+    {% endif %}
+    {% if filter_month %}
+    <span class="filter-tag">
+        기간: {{ filter_month }}
+        <a href="{{ url_for('tasks', show_completed='1' if show_completed else '0', activist=filter_activist) }}" class="filter-remove" title="필터 해제">×</a>
+    </span>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if grouped_tasks %}
+{% for month, tasks in grouped_tasks.items() %}
+<div class="month-group">
+    <div class="month-header">{{ month }} <span class="month-count">({{ tasks|length }}건)</span></div>
+    <ul class="task-list">
+        {% for task in tasks %}
+        <li class="task-item {% if task.is_completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+            <button type="button" class="checkbox-btn {% if task.is_completed %}checked{% endif %}" onclick="toggleTask({{ task.id }}, this)" title="클릭하여 완료/미완료 전환">
+                {% if task.is_completed %}✓{% endif %}
+            </button>
+            <div class="task-content">
+                <div class="task-text">
+                    {% if task.is_draft %}<span class="badge badge-draft" title="아직 확정되지 않은 실무">가안</span> {% endif %}
+                    {{ task.content }}
+                </div>
+                <div class="task-meta">
+                    <a href="{{ url_for('schedule_detail', schedule_id=task.schedule_id) }}" class="schedule-link" title="연결된 일정 보기">{{ task.schedule_title }}</a>
+                    {% if task.is_idea %}
+                    <span class="badge badge-idea" title="실무가 아닌 아이디어">아이디어</span>
+                    {% endif %}
+                    {% if task.deadline and not task.is_completed %}
+                    <span class="deadline-date">{{ task.deadline | date_kr }}</span>
+                    <span class="dday {{ task.dday_class }}">{{ task.dday_text }}</span>
+                    {% endif %}
+                    {% if task.activist_name %}
+                    <span class="assignee" title="담당자">{{ task.activist_name }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="task-actions">
+                <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
+                      onsubmit="return confirm('삭제하시겠습니까?');">
+                    <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">📝</div>
+    <div class="empty-message">
+        {% if filter_activist or filter_month %}
+        조건에 맞는 실무가 없습니다
+        {% else %}
+        등록된 실무가 없습니다
+        {% endif %}
+    </div>
+    <div class="empty-hint">
+        {% if filter_activist or filter_month %}
+        다른 필터를 선택하거나 <a href="{{ url_for('tasks') }}">전체 보기</a>를 클릭하세요
+        {% else %}
+        아래 양식으로 새 실무를 추가하거나, 일정 상세 페이지에서 추가할 수 있습니다
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 실무 추가 -->
+<div class="section mt-4">
+    <div class="section-header">
+        <div class="section-title">➕ 실무 추가</div>
+    </div>
+    <p class="section-description">새로운 실무를 추가합니다. 일정 상세 페이지에서도 실무를 추가할 수 있습니다.</p>
+
+    <form id="task-form" action="{{ url_for('task_add') }}" method="post" class="form-card">
+        <input type="hidden" name="referer" value="{{ request.url }}">
+        <input type="hidden" id="selected-schedule-id" name="schedule_id" value="">
+        <input type="hidden" id="selected-activist-id" name="activist_id" value="">
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>연결 일정 <span class="required">*</span></label>
+                <button type="button" class="form-control" style="text-align: left; cursor: pointer;" onclick="openModal('schedule-modal')" title="이 실무가 속한 일정을 선택하세요">
+                    <span id="selected-schedule-text">선택하세요</span>
+                </button>
+                <span class="form-hint">실무가 속한 일정을 선택하세요</span>
+            </div>
+            <div class="form-group" style="flex: 2;">
+                <label>실무 내용 <span class="required">*</span></label>
+                <input type="text" name="content" class="form-control" placeholder="예: 포스터 디자인하기, 장소 대관하기" required>
+                <span class="form-hint">해야 할 일을 구체적으로 적어주세요</span>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>담당자</label>
+                <button type="button" class="form-control" style="text-align: left; cursor: pointer;" onclick="openModal('activist-modal')" title="이 실무의 담당자를 선택하세요">
+                    <span id="selected-activist-text">미지정</span>
+                </button>
+                <span class="form-hint">선택 사항</span>
+            </div>
+            <div class="form-group">
+                <label>마감일</label>
+                <input type="date" name="deadline" class="form-control" title="이 실무를 완료해야 하는 날짜">
+                <span class="form-hint">언제까지 완료해야 하나요?</span>
+            </div>
+            <div class="form-group">
+                <label class="form-check" title="세부내용에 대한 아이디어인 경우 체크">
+                    <input type="checkbox" name="is_idea">
+                    아이디어
+                </label>
+                <span class="form-hint">세부내용 아이디어</span>
+            </div>
+            <div class="form-group">
+                <label class="form-check" title="아직 확정되지 않은 실무인 경우 체크">
+                    <input type="checkbox" name="is_draft">
+                    가안
+                </label>
+                <span class="form-hint">미확정 실무</span>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">추가</button>
+        </div>
+    </form>
+</div>
+
+<!-- 일정 선택 모달 -->
+<div id="schedule-modal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'schedule-modal')">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title">일정 선택</span>
+            <button class="modal-close" onclick="closeModal('schedule-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="modal-hint">이 실무가 속한 일정을 선택하세요</p>
+            <div class="select-list">
+                {% for schedule in schedules %}
+                <div class="select-item" onclick="selectSchedule('{{ schedule.id }}', '{{ schedule.title }}')">
+                    <div class="select-item-info">
+                        <div class="select-item-name">{{ schedule.title }}</div>
+                        <div class="select-item-detail">{{ schedule.category }} · {{ schedule.date | date_kr }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 담당자 선택 모달 -->
+<div id="activist-modal" class="modal-overlay" onclick="closeModalOnOverlay(event, 'activist-modal')">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title">담당자 선택</span>
+            <button class="modal-close" onclick="closeModal('activist-modal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="modal-hint">이 실무의 담당자를 선택하세요</p>
+            <div class="select-list">
+                <div class="select-item" onclick="selectActivist('', '미지정')">
+                    <div class="select-item-avatar">-</div>
+                    <div class="select-item-info">
+                        <div class="select-item-name">미지정</div>
+                        <div class="select-item-detail">담당자를 나중에 정합니다</div>
+                    </div>
+                </div>
+                {% for activist in activists %}
+                <div class="select-item" onclick="selectActivist('{{ activist.id }}', '{{ activist.name }}')">
+                    <div class="select-item-avatar">{{ activist.name[0] }}</div>
+                    <div class="select-item-info">
+                        <div class="select-item-name">{{ activist.name }}</div>
+                        <div class="select-item-detail">ID: {{ activist.id }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function applyFilter(key, value) {
+    const url = new URL(window.location.href);
+    if (value) {
+        url.searchParams.set(key, value);
+    } else {
+        url.searchParams.delete(key);
+    }
+    window.location.href = url.toString();
+}
+
+function openModal(id) {
+    document.getElementById(id).classList.add('active');
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('active');
+}
+
+function closeModalOnOverlay(event, id) {
+    if (event.target.classList.contains('modal-overlay')) {
+        closeModal(id);
+    }
+}
+
+function selectSchedule(id, title) {
+    document.getElementById('selected-schedule-id').value = id;
+    document.getElementById('selected-schedule-text').textContent = title;
+    closeModal('schedule-modal');
+}
+
+function selectActivist(id, name) {
+    document.getElementById('selected-activist-id').value = id;
+    document.getElementById('selected-activist-text').textContent = name;
+    closeModal('activist-modal');
+}
+</script>
+{% endblock %}

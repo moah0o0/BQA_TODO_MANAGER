@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}홈 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>부산퀴어행동 TODO</h1>
+    <p class="page-subtitle">{{ today.strftime('%Y년 %m월 %d일') }}</p>
+</div>
+
+<!-- 빠른 안내 -->
+<div class="quick-guide">
+    <div class="guide-item">
+        <span class="guide-icon">📋</span>
+        <span class="guide-text"><strong>회의</strong> 탭에서 이번 달 논의사항을 한눈에 확인하세요</span>
+    </div>
+</div>
+
+<!-- 요약 카드 -->
+<div class="summary-cards">
+    <div class="summary-card urgent" title="마감까지 3일 이내인 실무">
+        <div class="number">{{ stats.urgent }}</div>
+        <div class="label">긴급 (D-3 이내)</div>
+    </div>
+    <div class="summary-card" title="마감까지 7일 이내인 실무">
+        <div class="number">{{ stats.week }}</div>
+        <div class="label">이번 주</div>
+    </div>
+    <div class="summary-card" title="아직 완료하지 않은 모든 실무">
+        <div class="number">{{ stats.total }}</div>
+        <div class="label">전체 미완료</div>
+    </div>
+</div>
+
+<!-- 긴급 실무 -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">🔥 긴급 실무</div>
+        <span class="section-hint">마감 3일 이내</span>
+    </div>
+
+    {% if urgent_tasks %}
+    <ul class="task-list">
+        {% for task in urgent_tasks %}
+        <li class="task-item {% if task.is_completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+            <button type="button" class="checkbox-btn {% if task.is_completed %}checked{% endif %}" onclick="toggleTask({{ task.id }}, this)" title="클릭하여 완료/미완료 전환">
+                {% if task.is_completed %}✓{% endif %}
+            </button>
+            <div class="task-content">
+                <div class="task-text">
+                    {% if task.is_draft %}<span class="badge badge-draft" title="아직 확정되지 않은 실무">가안</span> {% endif %}
+                    {{ task.content }}
+                </div>
+                <div class="task-meta">
+                    <a href="{{ url_for('schedule_detail', schedule_id=task.schedule_id) }}" class="schedule-link" title="연결된 일정 보기">{{ task.schedule_title }}</a>
+                    {% if task.deadline %}
+                    <span class="deadline-date">{{ task.deadline | date_kr }}</span>
+                    <span class="dday {{ task.dday_class }}">{{ task.dday_text }}</span>
+                    {% endif %}
+<span class="assignee {% if not task.activist_name %}unassigned{% endif %}" title="담당자">{{ task.activist_name or '미정' }}</span>
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">✨</div>
+        <div class="empty-message">긴급한 실무가 없습니다</div>
+        <div class="empty-hint">마감 3일 이내의 실무가 있으면 여기에 표시됩니다</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 다가오는 일정 -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📅 다가오는 일정</div>
+        <a href="{{ url_for('schedules') }}" class="btn btn-ghost btn-sm">전체 보기 →</a>
+    </div>
+    <p class="section-description">앞으로 2개월 이내의 예정된 일정입니다. 클릭하면 상세 내용과 실무를 확인할 수 있습니다.</p>
+
+    {% if upcoming_schedules %}
+    <div class="schedule-list">
+        {% for schedule in upcoming_schedules %}
+        <a href="{{ url_for('schedule_detail', schedule_id=schedule.id) }}" class="schedule-card" title="클릭하여 상세 보기">
+            <div class="schedule-card-title">{{ schedule.title }}</div>
+            <div class="schedule-card-meta">
+                <span>{{ schedule.date | date_kr }}</span>
+                <span class="badge badge-category">{{ schedule.category }}</span>
+                {% if schedule.is_confirmed %}
+                <span class="badge badge-confirmed" title="일정이 확정됨">확정</span>
+                {% else %}
+                <span class="badge badge-pending" title="아직 확정되지 않음">미확정</span>
+                {% endif %}
+            </div>
+            {% if schedule.task_count > 0 %}
+            <div class="progress-bar" title="실무 진행률">
+                <div class="progress-fill" style="width: {{ (schedule.completed_count / schedule.task_count * 100) | int if schedule.task_count > 0 else 0 }}%"></div>
+            </div>
+            <div class="progress-text">{{ schedule.completed_count | int }}/{{ schedule.task_count }} 실무 완료</div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <div class="empty-message">등록된 일정이 없습니다</div>
+        <div class="empty-hint">
+            <a href="{{ url_for('schedule_add') }}" class="btn btn-primary btn-sm">+ 새 일정 추가</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 사용 가이드 -->
+<div class="section guide-section">
+    <div class="section-header">
+        <div class="section-title">💡 사용 가이드</div>
+    </div>
+    <div class="guide-cards">
+        <div class="guide-card">
+            <div class="guide-card-icon">☑️</div>
+            <div class="guide-card-content">
+                <div class="guide-card-title">실무 완료하기</div>
+                <div class="guide-card-desc">체크박스를 클릭하면 실무가 완료됩니다. 실수로 눌렀다면 5초 내에 취소할 수 있습니다.</div>
+            </div>
+        </div>
+        <div class="guide-card">
+            <div class="guide-card-icon">📝</div>
+            <div class="guide-card-content">
+                <div class="guide-card-title">가안 vs 확정</div>
+                <div class="guide-card-desc"><span class="badge badge-draft">가안</span>은 아직 확정되지 않은 실무입니다. 회의에서 결정 후 가안을 해제하세요.</div>
+            </div>
+        </div>
+        <div class="guide-card">
+            <div class="guide-card-icon">💡</div>
+            <div class="guide-card-content">
+                <div class="guide-card-title">아이디어</div>
+                <div class="guide-card-desc"><span class="badge badge-idea">아이디어</span>는 사업 세부내용에 대한 아이디어입니다. 일정 상세에서 추가할 수 있습니다.</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

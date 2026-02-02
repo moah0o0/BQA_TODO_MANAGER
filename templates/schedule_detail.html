@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}{{ schedule.title }} - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<!-- 헤더 -->
+<div class="detail-header">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+        <a href="{{ url_for('schedules') }}" class="btn btn-ghost btn-sm" title="일정 목록으로 돌아가기">&larr; 목록</a>
+        <div style="display: flex; gap: 8px;">
+            <a href="{{ url_for('schedule_edit', schedule_id=schedule.id) }}" class="btn btn-secondary btn-sm" title="일정 정보 수정">수정</a>
+            <form action="{{ url_for('schedule_toggle_complete', schedule_id=schedule.id) }}" method="post" class="inline-form">
+                <button type="submit" class="btn btn-sm {% if schedule.is_completed %}btn-ghost{% else %}btn-primary{% endif %}" title="{% if schedule.is_completed %}예정 상태로 되돌리기{% else %}일정을 완료 처리{% endif %}">
+                    {% if schedule.is_completed %}예정으로 변경{% else %}완료 처리{% endif %}
+                </button>
+            </form>
+        </div>
+    </div>
+    <h1 class="detail-title">{{ schedule.title }}</h1>
+    <div class="detail-meta">
+        <span>{{ schedule.date | date_kr }}</span>
+        <span class="badge badge-category">{{ schedule.category }}</span>
+        {% if schedule.is_confirmed %}
+        <span class="badge badge-confirmed" title="기획이 확정된 일정입니다">확정</span>
+        {% else %}
+        <span class="badge badge-pending" title="아직 세부 기획이 필요합니다">미확정</span>
+        {% endif %}
+    </div>
+</div>
+
+<!-- 진행률 -->
+{% if total_tasks > 0 %}
+<div class="detail-progress">
+    <div class="detail-progress-header">
+        <span class="detail-progress-label">실무 진행률</span>
+        <span class="detail-progress-value">{{ completed_tasks }}/{{ total_tasks }} ({{ progress }}%)</span>
+    </div>
+    <div class="progress-bar" title="완료된 실무 / 전체 실무">
+        <div class="progress-fill" style="width: {{ progress }}%"></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 세부내용 -->
+{% if schedule.details %}
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📋 세부내용</div>
+    </div>
+    <div class="wysiwyg-content">{{ schedule.details | safe }}</div>
+</div>
+{% endif %}
+
+<!-- 아이디어 (실무 위에 배치) -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">💡 아이디어</div>
+        <span class="section-hint">실무가 아닌 제안사항</span>
+    </div>
+    <p class="section-description">이 일정의 세부내용에 대한 아이디어를 자유롭게 추가해주세요. 회의에서 논의 후 세부내용에 반영합니다.</p>
+
+    {% if idea_tasks %}
+    <ul class="task-list">
+        {% for task in idea_tasks %}
+        <li class="task-item {% if task.is_completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+            <button type="button" class="checkbox-btn {% if task.is_completed %}checked{% endif %}" onclick="toggleTask({{ task.id }}, this)" title="채택 여부 표시">
+                {% if task.is_completed %}✓{% endif %}
+            </button>
+            <div class="task-content">
+                <div class="task-text">{{ task.content }}</div>
+                <div class="task-meta">
+                    {% if task.activist_name %}
+                    <span class="assignee" title="제안자">{{ task.activist_name }}</span>
+                    {% endif %}
+                    {% if task.created_at %}
+                    <span class="created-date" title="제안 일시">{{ task.created_at }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="task-actions">
+                <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
+                      onsubmit="return confirm('삭제하시겠습니까?');">
+                    <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty-state small">
+        <span class="text-muted">아직 제안된 아이디어가 없습니다</span>
+    </div>
+    {% endif %}
+
+    <!-- 아이디어 추가 폼 -->
+    <form action="{{ url_for('task_add') }}" method="post" class="add-form" title="세부내용 아이디어 추가">
+        <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
+        <input type="hidden" name="referer" value="{{ request.url }}">
+        <input type="hidden" name="is_idea" value="1">
+        <input type="text" name="content" placeholder="+ 세부내용 아이디어 추가... (예: 포스터 디자인에 무지개 깃발 넣기)" required>
+        <select name="activist_id" class="form-control" style="width: auto;" title="누가 제안했나요?">
+            <option value="">미정</option>
+            {% for activist in activists %}
+            <option value="{{ activist.id }}">{{ activist.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">추가</button>
+    </form>
+</div>
+
+<!-- 실무 -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📝 실무</div>
+        <span class="section-hint">실제로 해야 할 일</span>
+    </div>
+    <p class="section-description">이 일정을 위해 해야 할 실무 목록입니다. 체크박스를 눌러 완료 처리하세요.</p>
+
+    {% if action_tasks %}
+    <ul class="task-list">
+        {% for task in action_tasks %}
+        <li class="task-item {% if task.is_completed %}completed{% endif %}" data-task-id="{{ task.id }}">
+            <button type="button" class="checkbox-btn {% if task.is_completed %}checked{% endif %}" onclick="toggleTask({{ task.id }}, this)" title="클릭하여 완료/미완료 전환">
+                {% if task.is_completed %}✓{% endif %}
+            </button>
+            <div class="task-content">
+                <div class="task-text">
+                    {% if task.is_draft %}<span class="badge badge-draft" title="아직 확정되지 않은 실무 (회의에서 결정 필요)">가안</span> {% endif %}
+                    {{ task.content }}
+                </div>
+                <div class="task-meta">
+                    {% if task.deadline %}
+                    <span class="deadline-date">{{ task.deadline | date_kr }}</span>
+                    <span class="dday {{ task.deadline | dday_class }}">{{ task.deadline | dday }}</span>
+                    {% endif %}
+                    <span class="assignee {% if not task.activist_name %}unassigned{% endif %}" title="담당자">{{ task.activist_name or '미정' }}</span>
+                </div>
+            </div>
+            <div class="task-actions">
+                <form action="{{ url_for('task_delete', task_id=task.id) }}" method="post" class="inline-form"
+                      onsubmit="return confirm('삭제하시겠습니까?');">
+                    <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty-state small">
+        <span class="text-muted">등록된 실무가 없습니다</span>
+    </div>
+    {% endif %}
+
+    <!-- 인라인 추가 폼 -->
+    <form action="{{ url_for('task_add') }}" method="post" class="add-form" title="새 실무 추가">
+        <input type="hidden" name="schedule_id" value="{{ schedule.id }}">
+        <input type="hidden" name="referer" value="{{ request.url }}">
+        <input type="text" name="content" placeholder="+ 실무 추가... (예: 장소 대관하기)" required>
+        <select name="activist_id" class="form-control" style="width: auto;" title="누가 담당하나요?">
+            <option value="">미정</option>
+            {% for activist in activists %}
+            <option value="{{ activist.id }}">{{ activist.name }}</option>
+            {% endfor %}
+        </select>
+        <input type="date" name="deadline" class="form-control" style="width: auto;" title="언제까지 완료해야 하나요?">
+        <label class="form-check" style="margin: 0; white-space: nowrap;" title="아직 확정되지 않은 실무인 경우 체크">
+            <input type="checkbox" name="is_draft" value="1">
+            가안
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">추가</button>
+    </form>
+</div>
+
+<!-- 하단 도움말 -->
+<div class="page-footer-hint">
+    <div class="hint-item">
+        <span class="badge badge-draft">가안</span> 아직 확정되지 않은 실무. 회의에서 결정 후 가안을 해제하세요.
+    </div>
+    <div class="hint-item">
+        <span class="badge badge-idea">아이디어</span> 세부내용에 대한 아이디어. 회의에서 논의 후 반영하세요.
+    </div>
+</div>
+{% endblock %}

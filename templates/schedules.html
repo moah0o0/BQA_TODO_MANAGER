@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}일정 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>일정</h1>
+    <p class="page-subtitle">부산퀴어행동의 모든 일정을 관리합니다</p>
+    <div class="header-actions">
+        <a href="{{ url_for('schedule_add') }}" class="btn btn-primary">+ 새 일정</a>
+    </div>
+</div>
+
+<!-- 탭 필터 설명 -->
+<div class="tabs-with-hint">
+    <div class="tabs">
+        <a href="{{ url_for('schedules', status='upcoming') }}"
+           class="tab {% if current_status == 'upcoming' %}active{% endif %}" title="아직 완료되지 않은 일정">예정</a>
+        <a href="{{ url_for('schedules', status='completed') }}"
+           class="tab {% if current_status == 'completed' %}active{% endif %}" title="이미 완료된 일정">완료</a>
+        <a href="{{ url_for('schedules', status='all') }}"
+           class="tab {% if current_status == 'all' %}active{% endif %}" title="모든 일정 보기">전체</a>
+    </div>
+    <span class="tabs-hint">
+        {% if current_status == 'upcoming' %}진행 예정인 일정만 표시합니다
+        {% elif current_status == 'completed' %}완료된 일정만 표시합니다
+        {% else %}모든 일정을 표시합니다{% endif %}
+    </span>
+</div>
+
+<!-- 사업종류 필터 -->
+<div class="category-filter">
+    <span class="category-filter-label">사업종류:</span>
+    <div class="category-chips">
+        <label class="category-chip" data-category="정기모임">
+            <input type="checkbox" checked onchange="toggleCategory('정기모임', this.checked)">
+            <span>정기모임</span>
+        </label>
+        <label class="category-chip" data-category="정기모임 연계활동">
+            <input type="checkbox" checked onchange="toggleCategory('정기모임 연계활동', this.checked)">
+            <span>정기모임 연계활동</span>
+        </label>
+        <label class="category-chip" data-category="의결기관">
+            <input type="checkbox" checked onchange="toggleCategory('의결기관', this.checked)">
+            <span>의결기관</span>
+        </label>
+        <label class="category-chip" data-category="연대사업">
+            <input type="checkbox" onchange="toggleCategory('연대사업', this.checked)">
+            <span>연대사업</span>
+        </label>
+    </div>
+    {% if yearly_schedules %}
+    <button type="button" class="btn btn-ghost btn-sm yearly-btn" onclick="openYearlyModal()" title="연중 1회 진행하는 일정 보기">
+        📅 연중 일정 ({{ yearly_schedules|length }})
+    </button>
+    {% endif %}
+</div>
+
+{% if grouped_schedules %}
+{% for month, schedules in grouped_schedules.items() %}
+<div class="month-group">
+    <div class="month-header">{{ month }}</div>
+    <div class="schedule-list">
+        {% for schedule in schedules %}
+        <div class="schedule-card {% if schedule.is_completed %}completed{% endif %}" data-category="{{ schedule.category }}">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <a href="{{ url_for('schedule_detail', schedule_id=schedule.id) }}" style="flex: 1;" title="클릭하여 상세 보기 및 실무 관리">
+                    <div class="schedule-card-title">{{ schedule.title }}</div>
+                    <div class="schedule-card-meta">
+                        <span>{{ schedule.date | date_kr }}</span>
+                        <span class="badge badge-category">{{ schedule.category }}</span>
+                        {% if schedule.is_confirmed %}
+                        <span class="badge badge-confirmed" title="기획이 확정된 일정">확정</span>
+                        {% else %}
+                        <span class="badge badge-pending" title="기획 확정이 필요한 일정">미확정</span>
+                        {% endif %}
+                    </div>
+                </a>
+                <div style="display: flex; gap: 4px;">
+                    <form action="{{ url_for('schedule_toggle_complete', schedule_id=schedule.id) }}" method="post" class="inline-form">
+                        <button type="submit" class="btn btn-ghost btn-sm" title="{% if schedule.is_completed %}예정 상태로 되돌리기{% else %}일정을 완료 처리{% endif %}">
+                            {% if schedule.is_completed %}예정으로{% else %}완료{% endif %}
+                        </button>
+                    </form>
+                    <form action="{{ url_for('schedule_delete', schedule_id=schedule.id) }}" method="post" class="inline-form"
+                          onsubmit="return confirm('정말 삭제하시겠습니까? 연결된 모든 실무도 함께 삭제됩니다.');">
+                        <button type="submit" class="btn btn-danger btn-sm" title="일정과 연결된 실무 모두 삭제">삭제</button>
+                    </form>
+                </div>
+            </div>
+            {% if schedule.task_count > 0 %}
+            <div class="progress-bar" title="실무 진행률: {{ schedule.completed_count | int }}/{{ schedule.task_count }}">
+                <div class="progress-fill" style="width: {{ (schedule.completed_count / schedule.task_count * 100) | int if schedule.task_count > 0 else 0 }}%"></div>
+            </div>
+            <div class="progress-text">{{ schedule.completed_count | int }}/{{ schedule.task_count }} 실무 완료</div>
+            {% else %}
+            <div class="progress-text text-muted">등록된 실무 없음</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">📅</div>
+    <div class="empty-message">
+        {% if current_status == 'upcoming' %}예정된 일정이 없습니다
+        {% elif current_status == 'completed' %}완료된 일정이 없습니다
+        {% else %}등록된 일정이 없습니다{% endif %}
+    </div>
+    <div class="empty-hint">
+        {% if current_status == 'upcoming' %}
+        <a href="{{ url_for('schedule_add') }}" class="btn btn-primary btn-sm">+ 새 일정 추가</a>
+        {% elif current_status == 'completed' %}
+        일정을 완료 처리하면 여기에 표시됩니다
+        {% else %}
+        <a href="{{ url_for('schedule_add') }}" class="btn btn-primary btn-sm">+ 새 일정 추가</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- 하단 안내 -->
+<div class="page-footer-hint">
+    <div class="hint-item">
+        <span class="badge badge-confirmed">확정</span> 기획이 확정된 일정
+    </div>
+    <div class="hint-item">
+        <span class="badge badge-pending">미확정</span> 아직 세부 기획이 필요한 일정
+    </div>
+    <div class="hint-item">
+        <strong>진행률 바</strong>: 연결된 실무 완료 현황
+    </div>
+</div>
+
+<!-- 연중 일정 모달 -->
+{% if yearly_schedules %}
+<div id="yearly-modal" class="modal-overlay" onclick="closeYearlyOnOverlay(event)">
+    <div class="modal modal-lg">
+        <div class="modal-header">
+            <span class="modal-title">📅 연중 1회 일정</span>
+            <button class="modal-close" onclick="closeYearlyModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="modal-hint">연중 어느 시점에든 1회 진행하는 일정입니다. 적절한 시기에 기획해주세요.</p>
+            <div class="yearly-list">
+                {% for schedule in yearly_schedules %}
+                <a href="{{ url_for('schedule_detail', schedule_id=schedule.id) }}" class="yearly-item">
+                    <div class="yearly-item-title">{{ schedule.title }}</div>
+                    <div class="yearly-item-meta">
+                        <span class="badge badge-category">{{ schedule.category }}</span>
+                        {% if schedule.is_confirmed %}
+                        <span class="badge badge-confirmed">확정</span>
+                        {% else %}
+                        <span class="badge badge-pending">미확정</span>
+                        {% endif %}
+                        {% if schedule.task_count > 0 %}
+                        <span class="task-count">실무 {{ schedule.task_count }}건</span>
+                        {% endif %}
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-ghost" onclick="closeYearlyModal()">닫기</button>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<script>
+// 연중 일정 모달
+function openYearlyModal() {
+    document.getElementById('yearly-modal').classList.add('active');
+}
+
+function closeYearlyModal() {
+    document.getElementById('yearly-modal').classList.remove('active');
+}
+
+function closeYearlyOnOverlay(event) {
+    if (event.target.classList.contains('modal-overlay')) {
+        closeYearlyModal();
+    }
+}
+
+// 사업종류 필터 상태 (localStorage에 저장)
+const defaultCategories = ['정기모임', '정기모임 연계활동', '의결기관'];
+let selectedCategories = JSON.parse(localStorage.getItem('selectedCategories')) || defaultCategories;
+
+// 페이지 로드 시 필터 상태 복원
+document.addEventListener('DOMContentLoaded', function() {
+    // 체크박스 상태 복원
+    document.querySelectorAll('.category-chip input').forEach(checkbox => {
+        const category = checkbox.closest('.category-chip').dataset.category;
+        checkbox.checked = selectedCategories.includes(category);
+    });
+    // 필터 적용
+    applyFilter();
+});
+
+function toggleCategory(category, checked) {
+    if (checked) {
+        if (!selectedCategories.includes(category)) {
+            selectedCategories.push(category);
+        }
+    } else {
+        selectedCategories = selectedCategories.filter(c => c !== category);
+    }
+    localStorage.setItem('selectedCategories', JSON.stringify(selectedCategories));
+    applyFilter();
+}
+
+function applyFilter() {
+    document.querySelectorAll('.schedule-card').forEach(card => {
+        const category = card.dataset.category;
+        if (selectedCategories.includes(category)) {
+            card.classList.remove('collapsed');
+        } else {
+            card.classList.add('collapsed');
+        }
+    });
+
+    // 월별 그룹 내 모든 카드가 collapsed면 그룹도 축소 표시
+    document.querySelectorAll('.month-group').forEach(group => {
+        const cards = group.querySelectorAll('.schedule-card');
+        const visibleCards = group.querySelectorAll('.schedule-card:not(.collapsed)');
+        if (visibleCards.length === 0 && cards.length > 0) {
+            group.classList.add('all-collapsed');
+        } else {
+            group.classList.remove('all-collapsed');
+        }
+    });
+}
+</script>
+{% endblock %}

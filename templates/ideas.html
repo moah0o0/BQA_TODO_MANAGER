@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}사업 아이디어 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>사업 아이디어</h1>
+    <p class="page-subtitle">일정과 무관하게 활동가들이 제안하는 새로운 사업 아이디어</p>
+</div>
+
+<!-- 안내 -->
+<div class="info-box">
+    <div class="info-box-title">💡 이 페이지 사용법</div>
+    <div class="info-box-content">
+        <p>부산퀴어행동의 새로운 사업 아이디어를 자유롭게 제안하세요.</p>
+        <ul class="info-list">
+            <li>특정 일정과 관계없이 떠오르는 아이디어를 기록합니다.</li>
+            <li>회의에서 논의 후 채택되면 체크 표시하고, 새 일정으로 추가하세요.</li>
+        </ul>
+    </div>
+</div>
+
+<!-- 필터 -->
+<div class="filter-bar">
+    <div class="filter-group">
+        <label class="form-check">
+            <input type="checkbox" id="show-adopted" {% if show_adopted %}checked{% endif %}
+                   onchange="location.href='{{ url_for('ideas') }}?show_adopted=' + (this.checked ? '1' : '0') + '&activist={{ filter_activist }}'">
+            채택된 아이디어도 보기
+        </label>
+    </div>
+    <div class="filter-group">
+        <select class="form-control" onchange="location.href='{{ url_for('ideas') }}?show_adopted={{ '1' if show_adopted else '0' }}&activist=' + this.value">
+            <option value="">전체 활동가</option>
+            {% for activist in activists %}
+            <option value="{{ activist.id }}" {% if filter_activist == activist.id %}selected{% endif %}>{{ activist.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</div>
+
+<!-- 아이디어 추가 폼 -->
+<div class="section">
+    <form action="{{ url_for('idea_add') }}" method="post" class="add-form idea-add-form">
+        <input type="text" name="content" placeholder="+ 새 사업 아이디어 추가... (예: 퀴어 독서모임 운영)" required>
+        <select name="activist_id" class="form-control" style="width: auto;">
+            <option value="">제안자</option>
+            {% for activist in activists %}
+            <option value="{{ activist.id }}">{{ activist.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-primary">추가</button>
+    </form>
+</div>
+
+<!-- 아이디어 목록 -->
+<div class="section">
+    <div class="section-header">
+        <div class="section-title">📝 아이디어 목록</div>
+        <span class="section-count">{{ ideas|length }}건</span>
+    </div>
+
+    {% if ideas %}
+    <ul class="task-list idea-list">
+        {% for idea in ideas %}
+        <li class="task-item idea-item {% if idea.is_adopted %}completed{% endif %}" data-idea-id="{{ idea.id }}">
+            <button type="button" class="checkbox-btn {% if idea.is_adopted %}checked{% endif %}" onclick="toggleIdea({{ idea.id }}, this)" title="클릭하여 채택/미채택 전환">
+                {% if idea.is_adopted %}✓{% endif %}
+            </button>
+            <div class="task-content">
+                <div class="task-text">
+                    {% if idea.is_adopted %}<span class="badge badge-adopted">채택됨</span> {% endif %}
+                    {{ idea.content }}
+                </div>
+                <div class="task-meta">
+                    <span class="assignee {% if not idea.activist_name %}unassigned{% endif %}" title="제안자">{{ idea.activist_name or '익명' }}</span>
+                    {% if idea.created_at %}
+                    <span class="created-date" title="제안 일시">{{ idea.created_at }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="task-actions">
+                <form action="{{ url_for('idea_delete', idea_id=idea.id) }}" method="post" class="inline-form"
+                      onsubmit="return confirm('삭제하시겠습니까?');">
+                    <button type="submit" class="btn btn-danger btn-sm">삭제</button>
+                </form>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">💡</div>
+        <div class="empty-message">
+            {% if show_adopted %}등록된 아이디어가 없습니다
+            {% else %}검토 중인 아이디어가 없습니다{% endif %}
+        </div>
+        <div class="empty-hint">위 입력란에서 새 아이디어를 추가해보세요</div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 하단 안내 -->
+<div class="page-footer-hint">
+    <div class="hint-item">
+        <span class="badge badge-adopted">채택됨</span> 회의에서 논의 후 진행하기로 결정된 아이디어
+    </div>
+    <div class="hint-item">
+        채택된 아이디어는 <a href="{{ url_for('schedule_add') }}">새 일정</a>으로 등록하세요
+    </div>
+</div>
+
+<script>
+function toggleIdea(ideaId, checkbox) {
+    const ideaItem = checkbox.closest('.idea-item');
+    const wasAdopted = ideaItem.classList.contains('completed');
+
+    fetch(`/idea/${ideaId}/toggle`, {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            if (data.new_status === 1) {
+                ideaItem.classList.add('completed');
+                checkbox.classList.add('checked');
+                checkbox.innerHTML = '✓';
+                // 채택됨 배지 추가
+                const textEl = ideaItem.querySelector('.task-text');
+                if (!textEl.querySelector('.badge-adopted')) {
+                    textEl.insertAdjacentHTML('afterbegin', '<span class="badge badge-adopted">채택됨</span> ');
+                }
+                showToast('아이디어가 채택되었습니다');
+            } else {
+                ideaItem.classList.remove('completed');
+                checkbox.classList.remove('checked');
+                checkbox.innerHTML = '';
+                // 채택됨 배지 제거
+                const badge = ideaItem.querySelector('.badge-adopted');
+                if (badge) badge.remove();
+            }
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        location.reload();
+    });
+
+    return false;
+}
+</script>
+{% endblock %}

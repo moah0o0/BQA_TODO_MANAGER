@@ -1,0 +1,305 @@
+{% extends "base.html" %}
+
+{% block title %}{% if schedule %}일정 수정{% else %}새 일정{% endif %} - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div style="display: flex; align-items: center; gap: 16px;">
+        <a href="{{ url_for('schedules') }}" class="btn btn-ghost btn-sm" title="일정 목록으로 돌아가기">&larr; 목록</a>
+        <h1>{% if schedule %}일정 수정{% else %}새 일정{% endif %}</h1>
+    </div>
+</div>
+
+<!-- 안내 -->
+<div class="info-box info-box-compact">
+    <div class="info-box-content">
+        {% if schedule %}
+        <p>일정 정보를 수정합니다. <span class="required">*</span> 표시는 필수 입력 항목입니다.</p>
+        {% else %}
+        <p>새 일정을 추가합니다. <span class="required">*</span> 표시는 필수 입력 항목입니다.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Quill 에디터 CDN -->
+<link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+<script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+
+<form id="schedule-form" action="{% if schedule %}{{ url_for('schedule_edit', schedule_id=schedule.id) }}{% else %}{{ url_for('schedule_add') }}{% endif %}"
+      method="post" class="form-card" novalidate>
+
+    <div class="form-group">
+        <label>사업명 <span class="required">*</span></label>
+        <input type="text" name="title" id="title" class="form-control"
+               value="{{ form_data.title if form_data else (schedule.title if schedule else '') }}"
+               placeholder="예: 2026 부산퀴어문화축제 준비" required>
+        <div class="form-hint">일정의 이름을 입력하세요</div>
+        <div class="form-error" id="title-error"></div>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label>일정</label>
+            <div class="date-input-group">
+                <input type="text" name="date" id="date" class="form-control"
+                       value="{{ form_data.date if form_data else (schedule.date if schedule else '') }}"
+                       placeholder="YYYY-MM-DD, YYYY-MM-초/중순/말, 연중"
+                       title="날짜 형식: 2026-02-28, 2026-02, 2026-02-초, 또는 연중">
+                <button type="button" class="btn btn-ghost btn-sm" onclick="setDateAsYearly()" title="연중 1회 일정으로 설정">연중</button>
+            </div>
+            <div class="date-quick-btns">
+                <span class="hint">대략적 시기:</span>
+                <button type="button" class="btn btn-ghost btn-xs" onclick="setApproxDate('초')">월 초</button>
+                <button type="button" class="btn btn-ghost btn-xs" onclick="setApproxDate('중순')">월 중순</button>
+                <button type="button" class="btn btn-ghost btn-xs" onclick="setApproxDate('말')">월 말</button>
+            </div>
+            <div class="form-hint">
+                날짜 형식: <code>2026-02-28</code> · 월만 <code>2026-02</code> · 대략 <code>2026-02-초</code> · <code>연중</code><br>
+                비워두면 "미정"으로 표시됩니다
+            </div>
+            <div class="form-error" id="date-error"></div>
+        </div>
+        <div class="form-group">
+            <label>사업구분 <span class="required">*</span></label>
+            <select name="category" id="category" class="form-control" required>
+                <option value="">선택하세요</option>
+                {% set current_category = form_data.category if form_data else (schedule.category if schedule else '') %}
+                <option value="정기모임" {% if current_category == '정기모임' %}selected{% endif %}>정기모임</option>
+                <option value="정기모임 연계활동" {% if current_category == '정기모임 연계활동' %}selected{% endif %}>정기모임 연계활동</option>
+                <option value="연대사업" {% if current_category == '연대사업' %}selected{% endif %}>연대사업</option>
+                <option value="의결기관" {% if current_category == '의결기관' %}selected{% endif %}>의결기관</option>
+            </select>
+            <div class="form-hint">일정의 종류를 선택하세요</div>
+            <div class="form-error" id="category-error"></div>
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label class="form-check">
+            {% set is_confirmed = form_data.is_confirmed if form_data else (schedule.is_confirmed if schedule else False) %}
+            <input type="checkbox" name="is_confirmed" {% if is_confirmed %}checked{% endif %}>
+            확정된 일정
+        </label>
+        <div class="form-hint">
+            <span class="badge badge-confirmed">확정</span> 기획이 완료되어 진행이 확정된 일정<br>
+            <span class="badge badge-pending">미확정</span> 아직 세부 기획이 필요한 일정
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label>세부내용</label>
+        <div id="editor-container"></div>
+        <input type="hidden" id="details" name="details">
+        <div class="form-hint">일정에 대한 상세 설명을 작성하세요 (선택 사항)</div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">{% if schedule %}저장{% else %}추가{% endif %}</button>
+        <a href="{{ url_for('schedules') }}" class="btn btn-ghost">취소</a>
+    </div>
+</form>
+
+<style>
+#editor-container {
+    height: 250px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+}
+.ql-toolbar {
+    border: 1px solid var(--border);
+    border-radius: 4px 4px 0 0;
+    background: var(--bg-secondary);
+}
+.ql-container {
+    font-size: 14px;
+    font-family: inherit;
+}
+.form-error {
+    color: var(--red);
+    font-size: 12px;
+    margin-top: 4px;
+    display: none;
+}
+.form-error.show {
+    display: block;
+}
+.form-control.error {
+    border-color: var(--red);
+}
+.form-control.error:focus {
+    box-shadow: 0 0 0 3px rgba(224, 62, 62, 0.15);
+}
+code {
+    background: var(--bg-secondary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+</style>
+
+<script>
+var quill = new Quill('#editor-container', {
+    theme: 'snow',
+    modules: {
+        toolbar: [
+            [{ 'header': [1, 2, 3, false] }],
+            ['bold', 'italic', 'underline'],
+            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+            ['link'],
+            ['clean']
+        ]
+    },
+    placeholder: '세부내용을 입력하세요...'
+});
+
+{% set details_content = form_data.details if form_data else (schedule.details if schedule else '') %}
+{% if details_content %}
+quill.root.innerHTML = {{ details_content | tojson | safe }};
+{% endif %}
+
+// 연중 버튼 클릭
+function setDateAsYearly() {
+    document.getElementById('date').value = '연중';
+    clearError('date');
+}
+
+// 대략적 시기 버튼 클릭 (초/중순/말)
+function setApproxDate(timing) {
+    const dateInput = document.getElementById('date');
+    const currentValue = dateInput.value.trim();
+
+    // 이미 YYYY-MM 또는 YYYY-MM-시기 형식이면 시기만 변경
+    if (/^\d{4}-\d{2}(-[가-힣]+)?$/.test(currentValue)) {
+        const parts = currentValue.split('-');
+        dateInput.value = `${parts[0]}-${parts[1]}-${timing}`;
+    } else {
+        // 현재 연도와 월을 기본값으로
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        dateInput.value = `${year}-${month}-${timing}`;
+    }
+    clearError('date');
+}
+
+// 날짜 형식 유효성 검사
+function validateDateFormat(dateStr) {
+    if (!dateStr) return true; // 빈 값은 허용
+    // "연중" 허용
+    if (dateStr === '연중') return true;
+    // YYYY-MM-DD 형식
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const parts = dateStr.split('-');
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        const day = parseInt(parts[2], 10);
+        if (month < 1 || month > 12) return false;
+        if (day < 1 || day > 31) return false;
+        // 간단한 날짜 유효성 검사
+        const date = new Date(year, month - 1, day);
+        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+    }
+    // YYYY-MM 형식
+    if (/^\d{4}-\d{2}$/.test(dateStr)) {
+        const parts = dateStr.split('-');
+        const month = parseInt(parts[1], 10);
+        return month >= 1 && month <= 12;
+    }
+    // YYYY-MM-초/중순/말/미정 형식
+    if (/^\d{4}-\d{2}-(초|중순|말|미정)$/.test(dateStr)) {
+        const parts = dateStr.split('-');
+        const month = parseInt(parts[1], 10);
+        return month >= 1 && month <= 12;
+    }
+    return false;
+}
+
+// 에러 표시/숨김
+function showError(fieldId, message) {
+    const field = document.getElementById(fieldId);
+    const error = document.getElementById(fieldId + '-error');
+    if (field) field.classList.add('error');
+    if (error) {
+        error.textContent = message;
+        error.classList.add('show');
+    }
+}
+
+function clearError(fieldId) {
+    const field = document.getElementById(fieldId);
+    const error = document.getElementById(fieldId + '-error');
+    if (field) field.classList.remove('error');
+    if (error) error.classList.remove('show');
+}
+
+// 실시간 유효성 검사
+document.getElementById('title').addEventListener('input', function() {
+    if (this.value.trim()) {
+        clearError('title');
+    }
+});
+
+document.getElementById('category').addEventListener('change', function() {
+    if (this.value) {
+        clearError('category');
+    }
+});
+
+document.getElementById('date').addEventListener('input', function() {
+    const value = this.value.trim();
+    if (!value || validateDateFormat(value)) {
+        clearError('date');
+    } else {
+        showError('date', '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD 또는 YYYY-MM)');
+    }
+});
+
+// 폼 제출 시 유효성 검사
+document.getElementById('schedule-form').addEventListener('submit', function(e) {
+    let isValid = true;
+
+    // 제목 검사
+    const title = document.getElementById('title').value.trim();
+    if (!title) {
+        showError('title', '사업명을 입력해주세요.');
+        isValid = false;
+    } else {
+        clearError('title');
+    }
+
+    // 카테고리 검사
+    const category = document.getElementById('category').value;
+    if (!category) {
+        showError('category', '사업구분을 선택해주세요.');
+        isValid = false;
+    } else {
+        clearError('category');
+    }
+
+    // 날짜 형식 검사
+    const date = document.getElementById('date').value.trim();
+    if (date && !validateDateFormat(date)) {
+        showError('date', '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD 또는 YYYY-MM)');
+        isValid = false;
+    } else {
+        clearError('date');
+    }
+
+    if (!isValid) {
+        e.preventDefault();
+        // 첫 번째 에러 필드로 스크롤
+        const firstError = document.querySelector('.form-control.error');
+        if (firstError) {
+            firstError.focus();
+            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return false;
+    }
+
+    // Quill 내용을 hidden input에 저장
+    document.getElementById('details').value = quill.root.innerHTML;
+});
+</script>
+{% endblock %}

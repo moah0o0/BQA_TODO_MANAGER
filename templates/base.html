@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}부산퀴어행동 TODO{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <a href="{{ url_for('index') }}">부산퀴어행동</a>
+        </div>
+        <ul class="nav-links">
+            <li><a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}class="active"{% endif %}>홈</a></li>
+            <li><a href="{{ url_for('meeting') }}" {% if request.endpoint == 'meeting' %}class="active"{% endif %}>회의</a></li>
+            <li><a href="{{ url_for('schedules') }}" {% if request.endpoint in ['schedules', 'schedule_detail', 'schedule_add', 'schedule_edit'] %}class="active"{% endif %}>일정</a></li>
+            <li><a href="{{ url_for('tasks') }}" {% if request.endpoint == 'tasks' %}class="active"{% endif %}>실무</a></li>
+            <li><a href="{{ url_for('ideas') }}" {% if request.endpoint == 'ideas' %}class="active"{% endif %}>아이디어</a></li>
+            <li><a href="{{ url_for('activists') }}" {% if request.endpoint == 'activists' %}class="active"{% endif %}>활동가</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="flash-messages">
+            {% for message in messages %}
+            <div class="flash-message {% if '입력' in message or '선택' in message or '올바르지' in message or '없습니다' in message or '실패' in message %}error{% endif %}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        부산퀴어행동 TODO 매니저
+    </footer>
+
+    <!-- 토스트 컨테이너 -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script>
+    // 토스트 알림 함수
+    function showToast(message, undoCallback) {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerHTML = `
+            <span class="toast-message">${message}</span>
+            ${undoCallback ? '<button class="toast-action" onclick="undoAction(this)">실행 취소</button>' : ''}
+            <div class="toast-progress"></div>
+        `;
+
+        if (undoCallback) {
+            toast.undoCallback = undoCallback;
+        }
+
+        container.appendChild(toast);
+
+        // 5초 후 자동 닫기
+        setTimeout(() => {
+            toast.classList.add('hide');
+            setTimeout(() => toast.remove(), 300);
+        }, 5000);
+    }
+
+    function undoAction(btn) {
+        const toast = btn.closest('.toast');
+        if (toast.undoCallback) {
+            toast.undoCallback();
+        }
+        toast.classList.add('hide');
+        setTimeout(() => toast.remove(), 300);
+    }
+
+    // AJAX로 실무 토글
+    function toggleTask(taskId, checkbox) {
+        const taskItem = checkbox.closest('.task-item');
+        const wasCompleted = taskItem.classList.contains('completed');
+
+        fetch(`/task/${taskId}/toggle`, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // UI 즉시 업데이트
+                if (data.new_status === 1) {
+                    taskItem.classList.add('completed');
+                    checkbox.classList.add('checked');
+                    checkbox.innerHTML = '✓';
+                    showToast('실무를 완료했습니다', () => toggleTask(taskId, checkbox));
+                } else {
+                    taskItem.classList.remove('completed');
+                    checkbox.classList.remove('checked');
+                    checkbox.innerHTML = '';
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            // 오류 시 페이지 새로고침
+            location.reload();
+        });
+
+        return false; // 폼 제출 방지
+    }
+    </script>
+</body>
+</html>

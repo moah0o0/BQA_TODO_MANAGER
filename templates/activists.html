@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}활동가 - 부산퀴어행동 TODO{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>활동가</h1>
+    <p class="page-subtitle">실무 담당자로 지정할 수 있는 활동가 목록입니다</p>
+</div>
+
+<!-- 안내 박스 -->
+<div class="info-box info-box-compact">
+    <div class="info-box-content">
+        <p>활동가를 추가하면 실무 담당자로 지정할 수 있습니다. <strong>ID</strong>는 고유 식별자이고, <strong>활동명</strong>은 화면에 표시되는 이름입니다.</p>
+    </div>
+</div>
+
+{% if activists %}
+<div class="activist-list">
+    {% for activist in activists %}
+    <div class="activist-item">
+        <div class="activist-avatar" title="활동명 첫 글자">{{ activist.name[0] }}</div>
+        <div class="activist-info">
+            <div class="activist-name">{{ activist.name }}</div>
+            <div class="activist-id">ID: {{ activist.id }}</div>
+        </div>
+        <div class="activist-stats" title="이 활동가에게 할당된 미완료 실무 수">
+            {% if activist.task_count > 0 %}
+            <span class="stats-highlight">{{ activist.task_count }}건</span> 미완료
+            {% else %}
+            <span class="text-muted">할당된 실무 없음</span>
+            {% endif %}
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="openEditModal('{{ activist.id }}', '{{ activist.name }}')" title="활동가 정보 수정">수정</button>
+        <form action="{{ url_for('activist_delete', activist_id=activist.id) }}" method="post" class="inline-form"
+              onsubmit="return confirm('정말 삭제하시겠습니까?\n\n이 활동가에게 할당된 실무는 담당자가 미지정 상태로 변경됩니다.');">
+            <button type="submit" class="btn btn-danger btn-sm" title="활동가 삭제 (연결된 실무는 담당자 미지정으로 변경)">삭제</button>
+        </form>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+    <div class="empty-icon">👥</div>
+    <div class="empty-message">등록된 활동가가 없습니다</div>
+    <div class="empty-hint">아래 양식으로 활동가를 추가하세요</div>
+</div>
+{% endif %}
+
+<!-- 활동가 추가 -->
+<div class="section mt-4">
+    <div class="section-header">
+        <div class="section-title">➕ 활동가 추가</div>
+    </div>
+    <p class="section-description">새로운 활동가를 등록합니다. 등록된 활동가는 실무 담당자로 지정할 수 있습니다.</p>
+
+    <form action="{{ url_for('activist_add') }}" method="post" class="form-card">
+        <div class="form-row">
+            <div class="form-group">
+                <label>ID <span class="required">*</span></label>
+                <input type="text" name="id" class="form-control" placeholder="예: D" required maxlength="10" style="text-transform: uppercase;" title="고유 식별자 (영문 대문자)">
+                <div class="form-hint">영문 대문자 1~10자. 고유해야 합니다.</div>
+            </div>
+            <div class="form-group" style="flex: 2;">
+                <label>활동명 <span class="required">*</span></label>
+                <input type="text" name="name" class="form-control" placeholder="예: 홍길동" required title="화면에 표시될 이름">
+                <div class="form-hint">화면에 표시되는 이름입니다</div>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">추가</button>
+        </div>
+    </form>
+</div>
+
+<!-- 하단 안내 -->
+<div class="page-footer-hint">
+    <div class="hint-item">
+        <strong>ID</strong>: 시스템에서 사용하는 고유 식별자. 변경 가능하지만 중복 불가.
+    </div>
+    <div class="hint-item">
+        <strong>활동명</strong>: 화면에 표시되는 이름. 자유롭게 변경 가능.
+    </div>
+    <div class="hint-item">
+        <strong>삭제 시</strong>: 활동가에게 할당된 실무는 담당자가 "미지정"으로 변경됩니다.
+    </div>
+</div>
+
+<!-- 수정 모달 -->
+<div id="edit-modal" class="modal-overlay" onclick="closeModalOnOverlay(event)">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title">활동가 수정</span>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="edit-form" method="post">
+            <div class="modal-body">
+                <p class="modal-hint">활동가 정보를 수정합니다. ID를 변경하면 연결된 모든 실무의 담당자 정보도 자동으로 업데이트됩니다.</p>
+                <div class="form-group">
+                    <label>ID <span class="required">*</span></label>
+                    <input type="text" id="edit-id" name="new_id" class="form-control" required maxlength="10" style="text-transform: uppercase;">
+                    <div class="form-hint">영문 대문자 1~10자</div>
+                </div>
+                <div class="form-group">
+                    <label>활동명 <span class="required">*</span></label>
+                    <input type="text" id="edit-name" name="new_name" class="form-control" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" onclick="closeModal()">취소</button>
+                <button type="submit" class="btn btn-primary">저장</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditModal(id, name) {
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-name').value = name;
+    document.getElementById('edit-form').action = '/activist/' + id + '/edit';
+    document.getElementById('edit-modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('edit-modal').classList.remove('active');
+}
+
+function closeModalOnOverlay(event) {
+    if (event.target.classList.contains('modal-overlay')) {
+        closeModal();
+    }
+}
+</script>
+{% endblock %}
