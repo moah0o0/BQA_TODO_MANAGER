@@ -738,7 +738,7 @@ def schedule_detail(schedule_id):
         FROM tasks t
         LEFT JOIN activists a ON t.activist_id = a.id
         WHERE t.schedule_id = ? AND t.is_idea = 0
-        ORDER BY t.is_completed ASC, t.priority ASC
+        ORDER BY t.is_completed ASC, t.deadline ASC, t.priority ASC
     ''', (schedule_id,))
     action_tasks = cursor.fetchall()
 
